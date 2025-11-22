@@ -18,7 +18,7 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 # --- Configuration ---
-MAX_WORKERS = 4  # Number of browsers to open at once
+MAX_WORKERS = 16  # Number of browsers to open at once
 OUTPUT_DIR = "data"
 
 # List of states from the dropdown
