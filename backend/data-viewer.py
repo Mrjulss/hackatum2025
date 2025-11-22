@@ -3,7 +3,7 @@ import duckdb
 import pandas as pd
 
 # Connect to the database file created by the scraper
-db_path = "foundations.duckdb"
+db_path = "data/foundations_Bayern.duckdb"
 
 try:
     con = duckdb.connect(db_path)
