@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Literal
+from typing import List, Literal, Optional, Dict, Any
 
 
 class MatchItem(BaseModel):
@@ -19,9 +19,15 @@ class FoundationScore(BaseModel):
     match_score: float  # 0.0 to 1.0
     matches: List[MatchItem]
     
-    # Additional details from foundation
+    # Full foundation details (same as Foundation model)
+    long_description: str
     legal_form: str
-    foerderbereich_scope: str
+    gemeinnuetzige_zwecke: List[str]
+    antragsprozess: Dict[str, Any]
+    foerderbereich: Dict[str, Any]
+    foerderhoehe: Dict[str, Any]
+    contact: Dict[str, Any]
+    past_projects: List[Dict[str, Any]]
     website: str
 
 

@@ -134,8 +134,15 @@ def convert_foundation_to_scored(foundation: Dict[str, Any]) -> FoundationScore:
         funding_amount=funding_amount,
         match_score=score,
         matches=matches,
+        # Include all full foundation details
+        long_description=foundation.get("long_description", ""),
         legal_form=foundation.get("legal_form", "Stiftung"),
-        foerderbereich_scope=foundation.get("foerderbereich", {}).get("scope", "local"),
+        gemeinnuetzige_zwecke=zwecke,
+        antragsprozess=foundation.get("antragsprozess", {}),
+        foerderbereich=foundation.get("foerderbereich", {}),
+        foerderhoehe=foundation.get("foerderhoehe", {}),
+        contact=foundation.get("contact", {}),
+        past_projects=foundation.get("past_projects", []),
         website=foundation.get("website", "")
     )
 

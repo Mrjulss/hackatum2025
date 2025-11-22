@@ -4,12 +4,65 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { getFoundationScores } from "../services/api";
 import { ErrorState } from "./ErrorState";
-import { LoadingState } from "./LoadingState";
+import { FoundationsLoader } from "./FoundationsLoader";
 import { EmptyState } from "./EmptyState";
 
 type MatchItem = {
   text: string;
   type: "fit" | "mismatch" | "question";
+};
+
+type RequiredDocument = {
+  document_type: string;
+  description: string;
+  required: boolean;
+};
+
+type ApplicationProcess = {
+  deadline_type: string;
+  deadline_date?: string;
+  rolling_info?: string;
+  required_documents: RequiredDocument[];
+  evaluation_process: string;
+  decision_timeline: string;
+};
+
+type GeographicArea = {
+  scope: string;
+  specific_areas: string[];
+  restrictions?: string;
+};
+
+type FundingAmount = {
+  category: string;
+  min_amount: number;
+  max_amount: number;
+  average_amount?: number;
+  total_budget?: number;
+};
+
+type ContactInfo = {
+  email: string;
+  phone?: string;
+  address?: string;
+  contact_person?: string;
+};
+
+type Project = {
+  id: string;
+  name: string;
+  description: string;
+  image_url?: string;
+  foundation_id: string;
+  funded_amount: number;
+  duration: {
+    start_date: string;
+    end_date?: string;
+    duration_months: number;
+  };
+  status: string;
+  outcomes?: string;
+  website_url?: string;
 };
 
 type Foundation = {
@@ -20,10 +73,16 @@ type Foundation = {
   description: string;
   fundingAmount: string;
   matches: MatchItem[];
-  // Additional backend data
+  // Full foundation details
   matchScore?: number;
+  longDescription?: string;
   legalForm?: string;
-  foerderbereichScope?: string;
+  gemeinnuetzigeZwecke?: string[];
+  antragsprozess?: ApplicationProcess;
+  foerderbereich?: GeographicArea;
+  foerderhoehe?: FundingAmount;
+  contact?: ContactInfo;
+  pastProjects?: Project[];
   website?: string;
 };
 
@@ -130,13 +189,151 @@ const FoundationCard = ({
                     <p className="text-gray-600">{foundation.legalForm}</p>
                   </div>
                 )}
-                {foundation.foerderbereichScope && (
+                {foundation.foerderbereich && (
                   <div>
                     <h5 className="font-medium text-gray-700 mb-1">Förderbereich</h5>
-                    <p className="text-gray-600 capitalize">{foundation.foerderbereichScope}</p>
+                    <p className="text-gray-600 capitalize">{foundation.foerderbereich.scope}</p>
+                    {foundation.foerderbereich.specific_areas && foundation.foerderbereich.specific_areas.length > 0 && (
+                      <p className="text-sm text-gray-500 mt-1">
+                        {foundation.foerderbereich.specific_areas.join(", ")}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
+
+              {/* Long Description */}
+              {foundation.longDescription && (
+                <div>
+                  <h5 className="font-medium text-gray-700 mb-2">Über die Stiftung</h5>
+                  <p className="text-gray-600 text-sm">{foundation.longDescription}</p>
+                </div>
+              )}
+
+              {/* Gemeinnützige Zwecke */}
+              {foundation.gemeinnuetzigeZwecke && foundation.gemeinnuetzigeZwecke.length > 0 && (
+                <div>
+                  <h5 className="font-medium text-gray-700 mb-2">Gemeinnützige Zwecke</h5>
+                  <div className="flex flex-wrap gap-2">
+                    {foundation.gemeinnuetzigeZwecke.map((zweck, idx) => (
+                      <span key={idx} className="px-3 py-1 bg-blue-50 text-blue-700 text-sm rounded-full">
+                        {zweck}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Förderhöhe Details */}
+              {foundation.foerderhoehe && (
+                <div>
+                  <h5 className="font-medium text-gray-700 mb-2">Förderhöhe</h5>
+                  <div className="bg-gray-50 p-4 rounded-lg space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Kategorie:</span>
+                      <span className="font-medium capitalize">{foundation.foerderhoehe.category}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Bereich:</span>
+                      <span className="font-medium">
+                        {foundation.foerderhoehe.min_amount.toLocaleString('de-DE')}€ - {foundation.foerderhoehe.max_amount.toLocaleString('de-DE')}€
+                      </span>
+                    </div>
+                    {foundation.foerderhoehe.average_amount && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Durchschnitt:</span>
+                        <span className="font-medium">{foundation.foerderhoehe.average_amount.toLocaleString('de-DE')}€</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Antragsprozess - The key section the user wanted */}
+              {foundation.antragsprozess && (
+                <div>
+                  <h5 className="font-medium text-gray-700 mb-3">Antragsprozess</h5>
+                  <div className="bg-blue-50 p-4 rounded-lg space-y-3">
+                    {/* Deadline */}
+                    <div>
+                      <span className="text-sm font-medium text-gray-700">Bewerbungsfrist:</span>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {foundation.antragsprozess.deadline_type === "fixed" ? (
+                          <>Fester Termin: {foundation.antragsprozess.deadline_date}</>
+                        ) : (
+                          <>Laufende Bewerbung - {foundation.antragsprozess.rolling_info}</>
+                        )}
+                      </p>
+                    </div>
+
+                    {/* Required Documents */}
+                    {foundation.antragsprozess.required_documents && foundation.antragsprozess.required_documents.length > 0 && (
+                      <div>
+                        <span className="text-sm font-medium text-gray-700">Erforderliche Unterlagen:</span>
+                        <ul className="mt-2 space-y-1">
+                          {foundation.antragsprozess.required_documents.map((doc, idx) => (
+                            <li key={idx} className="text-sm text-gray-600 flex items-start gap-2">
+                              <span className={doc.required ? "text-red-500" : "text-gray-400"}>
+                                {doc.required ? "•" : "○"}
+                              </span>
+                              <span>
+                                <strong>{doc.document_type}:</strong> {doc.description}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Evaluation Process */}
+                    <div>
+                      <span className="text-sm font-medium text-gray-700">Bewertungsprozess:</span>
+                      <p className="text-sm text-gray-600 mt-1">{foundation.antragsprozess.evaluation_process}</p>
+                    </div>
+
+                    {/* Decision Timeline */}
+                    <div>
+                      <span className="text-sm font-medium text-gray-700">Entscheidungszeitraum:</span>
+                      <p className="text-sm text-gray-600 mt-1">{foundation.antragsprozess.decision_timeline}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Contact Information */}
+              {foundation.contact && (
+                <div>
+                  <h5 className="font-medium text-gray-700 mb-2">Kontakt</h5>
+                  <div className="bg-gray-50 p-4 rounded-lg space-y-2 text-sm">
+                    {foundation.contact.contact_person && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-gray-600">Ansprechpartner:</span>
+                        <span className="font-medium">{foundation.contact.contact_person}</span>
+                      </div>
+                    )}
+                    <div className="flex items-start gap-2">
+                      <span className="text-gray-600">Email:</span>
+                      <a href={`mailto:${foundation.contact.email}`} className="text-[#1b98d5] hover:underline">
+                        {foundation.contact.email}
+                      </a>
+                    </div>
+                    {foundation.contact.phone && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-gray-600">Telefon:</span>
+                        <a href={`tel:${foundation.contact.phone}`} className="text-[#1b98d5] hover:underline">
+                          {foundation.contact.phone}
+                        </a>
+                      </div>
+                    )}
+                    {foundation.contact.address && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-gray-600">Adresse:</span>
+                        <span className="text-gray-600">{foundation.contact.address}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Website */}
               {foundation.website && (
@@ -156,14 +353,24 @@ const FoundationCard = ({
                 </div>
               )}
 
-              {/* Purpose Details */}
-              <div>
-                <h5 className="font-medium text-gray-700 mb-2">Förderschwerpunkte</h5>
-                <p className="text-gray-600">
-                  Diese Stiftung konzentriert sich auf nachhaltige Projekte mit sozialem Impact. 
-                  Besondere Förderung erhalten innovative Ansätze im Bereich {foundation.purpose.toLowerCase()}.
-                </p>
-              </div>
+              {/* Past Projects */}
+              {foundation.pastProjects && foundation.pastProjects.length > 0 && (
+                <div>
+                  <h5 className="font-medium text-gray-700 mb-3">Vergangene Projekte</h5>
+                  <div className="space-y-3">
+                    {foundation.pastProjects.slice(0, 3).map((project, idx) => (
+                      <div key={idx} className="bg-gray-50 p-4 rounded-lg">
+                        <h6 className="font-medium text-gray-900 mb-1">{project.name}</h6>
+                        <p className="text-sm text-gray-600 mb-2">{project.description}</p>
+                        <div className="flex items-center gap-4 text-xs text-gray-500">
+                          <span>Förderung: {project.funded_amount.toLocaleString('de-DE')}€</span>
+                          <span>Status: {project.status}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -249,10 +456,16 @@ export function ResultsView() {
             description: f.description,
             fundingAmount: f.funding_amount,
             matches: f.matches,
-            // Store additional data for detail view
+            // Store all additional data for detail view
             matchScore: f.match_score,
+            longDescription: f.long_description,
             legalForm: f.legal_form,
-            foerderbereichScope: f.foerderbereich_scope,
+            gemeinnuetzigeZwecke: f.gemeinnuetzige_zwecke,
+            antragsprozess: f.antragsprozess,
+            foerderbereich: f.foerderbereich,
+            foerderhoehe: f.foerderhoehe,
+            contact: f.contact,
+            pastProjects: f.past_projects,
             website: f.website,
           }));
           
@@ -280,7 +493,7 @@ export function ResultsView() {
   const isAnyExpanded = expandedId !== null;
 
   if (isLoading) {
-    return <LoadingState />;
+    return <FoundationsLoader />;
   }
 
   if (error) {
