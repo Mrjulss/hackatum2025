@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 
 type MatchItem = {
@@ -112,13 +113,23 @@ const MatchIcon = ({ type }: { type: MatchItem["type"] }) => {
   );
 };
 
-const FoundationCard = ({ foundation }: { foundation: Foundation }) => {
+const FoundationCard = ({ 
+  foundation,
+  isExpanded,
+  onToggleExpand
+}: { 
+  foundation: Foundation;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+}) => {
   const fits = foundation.matches.filter((m) => m.type === "fit");
   const mismatches = foundation.matches.filter((m) => m.type === "mismatch");
   const questions = foundation.matches.filter((m) => m.type === "question");
 
   return (
-    <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow p-6 mb-4 animate-fadeIn">
+    <div className={`bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-500 p-6 ${
+      isExpanded ? '' : 'mb-4'
+    } animate-fadeIn`}>
       {/* Header */}
       <div className="flex items-start gap-4 mb-4">
         <div className="flex-shrink-0 w-16 h-16 rounded-lg bg-gradient-to-br from-[#1b98d5] to-[#0065bd] p-2">
@@ -130,87 +141,156 @@ const FoundationCard = ({ foundation }: { foundation: Foundation }) => {
             {foundation.purpose}
           </span>
         </div>
-        <div className="text-right">
-          <div className="px-4 py-2 bg-green-100 text-green-800 font-bold rounded-lg">
+        <div className="flex flex-col items-end gap-2">
+          <div className="px-6 py-3 bg-white/30 backdrop-blur-sm text-gray-900 text-xl font-bold rounded-lg border border-white/50">
             {foundation.fundingAmount}
           </div>
+          {!isExpanded && (
+            <button
+              onClick={onToggleExpand}
+              className="text-sm text-gray-600 hover:text-[#1b98d5] transition-colors"
+            >
+              Details ansehen →
+            </button>
+          )}
         </div>
       </div>
 
       {/* Description */}
-      <p className="text-gray-600 text-sm mb-4 line-clamp-2">{foundation.description}</p>
+      <p className={`text-gray-600 text-sm mb-4 ${isExpanded ? '' : 'line-clamp-2'}`}>
+        {foundation.description}
+      </p>
 
-      {/* Match Analysis */}
-      <div className="border-t pt-4">
-        <h4 className="text-sm font-semibold text-gray-700 mb-3">Match-Analyse</h4>
-        <div className="grid grid-cols-3 gap-4">
-          {/* Fits */}
-          <div>
-            <div className="text-xs font-medium text-green-700 mb-2">Passt</div>
-            <div className="space-y-1">
-              {fits.map((item, idx) => (
-                <div key={idx} className="flex items-start gap-2">
-                  <MatchIcon type="fit" />
-                  <span className="text-xs text-gray-700">{item.text}</span>
-                </div>
-              ))}
+      {/* Expanded Content */}
+      {isExpanded && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Additional Details Section */}
+          <div className="border-t pt-4">
+            <h4 className="text-lg font-semibold text-gray-900 mb-3">Detaillierte Informationen</h4>
+            <div className="space-y-4">
+              <div>
+                <h5 className="font-medium text-gray-700 mb-2">Förderschwerpunkte</h5>
+                <p className="text-gray-600">
+                  Diese Stiftung konzentriert sich auf nachhaltige Projekte mit sozialem Impact. 
+                  Besondere Förderung erhalten innovative Ansätze im Bereich {foundation.purpose.toLowerCase()}.
+                </p>
+              </div>
+              <div>
+                <h5 className="font-medium text-gray-700 mb-2">Bewerbungsanforderungen</h5>
+                <ul className="list-disc list-inside text-gray-600 space-y-1">
+                  <li>Detaillierter Projektplan</li>
+                  <li>Kostenaufstellung</li>
+                  <li>Nachweis der Gemeinnützigkeit</li>
+                  <li>Referenzen ähnlicher Projekte</li>
+                </ul>
+              </div>
             </div>
           </div>
 
-          {/* Mismatches */}
-          <div>
-            <div className="text-xs font-medium text-red-700 mb-2">Achtung</div>
-            <div className="space-y-1">
-              {mismatches.map((item, idx) => (
-                <div key={idx} className="flex items-start gap-2">
-                  <MatchIcon type="mismatch" />
-                  <span className="text-xs text-gray-700">{item.text}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* Back Button */}
+          <button
+            onClick={onToggleExpand}
+            className="w-full py-3 bg-[#1b98d5] text-white rounded-lg hover:bg-[#0065bd] transition-colors font-medium"
+          >
+            ← Zurück zur Übersicht
+          </button>
+        </div>
+      )}
 
-          {/* Questions */}
-          <div>
-            <div className="text-xs font-medium text-yellow-700 mb-2">Zu klären</div>
-            <div className="space-y-1">
-              {questions.map((item, idx) => (
-                <div key={idx} className="flex items-start gap-2">
-                  <MatchIcon type="question" />
-                  <span className="text-xs text-gray-700">{item.text}</span>
-                </div>
-              ))}
+      {/* Match Analysis - Only show when NOT expanded */}
+      {!isExpanded && (
+        <div className="border-t pt-4">
+          <h4 className="text-sm font-semibold text-gray-700 mb-3">Match-Analyse</h4>
+          <div className="grid grid-cols-3 gap-4">
+            {/* Fits */}
+            <div>
+              <div className="text-xs font-medium text-green-700 mb-2">Passt</div>
+              <div className="space-y-1">
+                {fits.map((item, idx) => (
+                  <div key={idx} className="flex items-start gap-2">
+                    <MatchIcon type="fit" />
+                    <span className="text-xs text-gray-700">{item.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Mismatches */}
+            <div>
+              <div className="text-xs font-medium text-red-700 mb-2">Achtung</div>
+              <div className="space-y-1">
+                {mismatches.map((item, idx) => (
+                  <div key={idx} className="flex items-start gap-2">
+                    <MatchIcon type="mismatch" />
+                    <span className="text-xs text-gray-700">{item.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Questions */}
+            <div>
+              <div className="text-xs font-medium text-yellow-700 mb-2">Zu klären</div>
+              <div className="space-y-1">
+                {questions.map((item, idx) => (
+                  <div key={idx} className="flex items-start gap-2">
+                    <MatchIcon type="question" />
+                    <span className="text-xs text-gray-700">{item.text}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
 
 export function ResultsView() {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const handleToggleExpand = (id: string) => {
+    setExpandedId(expandedId === id ? null : id);
+  };
+
+  const isAnyExpanded = expandedId !== null;
+
   return (
     <div className="h-full overflow-y-auto bg-slate-50 p-8">
-      {/* Header */}
-      <div className="mb-8 animate-slideDown">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Dein Perfect Match: {mockFoundations.length} Stiftungen gefunden
-        </h1>
-        <p className="text-gray-600">
-          Basierend auf deiner Projektidee haben wir diese passenden Fördermöglichkeiten identifiziert.
-        </p>
-      </div>
+      {/* Header - Hide when expanded */}
+      {!isAnyExpanded && (
+        <div className="mb-8 animate-slideDown">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            Dein Perfect Match: {mockFoundations.length} Stiftungen gefunden
+          </h1>
+          <p className="text-gray-600">
+            Basierend auf deiner Projektidee haben wir diese passenden Fördermöglichkeiten identifiziert.
+          </p>
+        </div>
+      )}
 
       {/* Foundation Cards */}
-      <div className="space-y-4">
-        {mockFoundations.map((foundation, index) => (
-          <div
-            key={foundation.id}
-            style={{ animationDelay: `${index * 100}ms` }}
-          >
-            <FoundationCard foundation={foundation} />
-          </div>
-        ))}
+      <div className={isAnyExpanded ? '' : 'space-y-4'}>
+        {mockFoundations.map((foundation, index) => {
+          const isExpanded = expandedId === foundation.id;
+          const shouldShow = !isAnyExpanded || isExpanded;
+          
+          if (!shouldShow) return null;
+
+          return (
+            <div
+              key={foundation.id}
+              style={{ animationDelay: isAnyExpanded ? '0ms' : `${index * 100}ms` }}
+            >
+              <FoundationCard 
+                foundation={foundation} 
+                isExpanded={isExpanded}
+                onToggleExpand={() => handleToggleExpand(foundation.id)}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
