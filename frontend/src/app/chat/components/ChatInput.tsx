@@ -32,7 +32,7 @@ export const ChatInput = ({ onSend, placeholder, disabled = false }: ChatInputPr
         onChange={(e) => setInput(e.target.value)}
         onKeyPress={handleKeyPress}
         placeholder={placeholder}
-        className="flex-1 px-6 py-4 text-lg border-2 border-white rounded-full focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent transition-all"
+        className="flex-1 px-6 py-4 text-lg text-white placeholder:text-white/60 border-2 border-white rounded-full focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent transition-all"
         disabled={disabled}
       />
       <button

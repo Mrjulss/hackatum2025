@@ -1,25 +1,31 @@
 import Image from "next/image";
 
 export const HeroSection = () => {
-  return (
-    <div className="flex flex-col items-end mb-12">
-      <h1 className="text-8xl font-bold text-white tracking-tight mb-2">
-        BE A CITY HERO
-      </h1>
+    return (
+        <div className="flex flex-col mb-8">
+            <h1 className="text-8xl font-bold text-white tracking-tight">
+                STADTHELDEN
+            </h1>
 
-      {/* In cooperation with TUM - smaller and right-aligned below */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-white/80">in cooperation with</span>
-        <Image
-          src="/getThumb.gif"
-          alt="TUM Logo"
-          width={60}
-          height={35}
-          priority
-        />
-      </div>
-    </div>
-  );
+            {/* Subtitle and cooperation info on the same line */}
+            <div className="flex items-center justify-between w-full">
+                {/* BE A CITY HERO - left-aligned */}
+                <span className="text-3xl text-white/80">BE A CITY HERO</span>
+
+                {/* In cooperation with TUM - right-aligned */}
+                <div className="flex items-start gap-2">
+                    <span className="text-sm text-white/60">in cooperation with</span>
+                    <Image
+                        src="/getThumb.gif"
+                        alt="TUM Logo"
+                        width={60}
+                        height={35}
+                        priority
+                    />
+                </div>
+            </div>
+        </div>
+    );
 };
 
 

@@ -1,4 +1,4 @@
-export const LoadingTransition = () => {
+export const ProjectAnalysisLoader = () => {
   return (
     <div className="flex items-center justify-center h-full bg-slate-50">
       <div className="text-center animate-fadeIn">
@@ -24,5 +24,4 @@ export const LoadingTransition = () => {
     </div>
   );
 };
-
 

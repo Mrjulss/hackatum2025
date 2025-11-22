@@ -14,8 +14,7 @@ export const sendMessageToBackend = async (
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ 
-        message,
-        conversation_id: conversationId 
+        content: message
       }),
     });
 

@@ -8,7 +8,7 @@ import { ChatMessages } from "./components/ChatMessages";
 import { ChatInput } from "./components/ChatInput";
 import { RefiningMode } from "./components/RefiningMode";
 import { ResultsView } from "./components/ResultsView";
-import { LoadingTransition } from "./components/LoadingTransition";
+import { ProjectAnalysisLoader } from "./components/ProjectAnalysisLoader";
 
 export default function ChatPage() {
   const placeholder = useTypingAnimation(
@@ -31,7 +31,7 @@ export default function ChatPage() {
         } overflow-hidden`}
       >
         {isTransitioning ? (
-          <LoadingTransition />
+          <ProjectAnalysisLoader />
         ) : showResults ? (
           <ResultsView />
         ) : null}
