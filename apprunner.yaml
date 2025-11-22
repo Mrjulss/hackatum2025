@@ -1,24 +1,27 @@
 version: 1.0
 runtime: python3
 
-env:
-  variables:
-    API_HOST: 0.0.0.0
-    API_PORT: "8080"
-    MONGODB_DB_NAME: city_hero
-    DEBUG: "False"
-  secrets:
-    - name: MONGODB_URL
-      value: arn:aws:secretsmanager:eu-central-1:586206156633:secret:Hackatum2025-8ehDyQ
-
 build:
   commands:
     pre-build:
       - pip install --upgrade pip
+      - pip install uv
     build:
-      - pip install -r backend/requirements.txt
+      - cd backend && uv sync
 
 run:
-  command: >
-    bash -c "cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8080"
-
+  command: cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+  network:
+    port: 8000
+  env:
+    - name: API_HOST
+      value: "0.0.0.0"
+    - name: API_PORT
+      value: "8000"
+    - name: MONGODB_DB_NAME
+      value: "city_hero"
+    - name: DEBUG
+      value: "False"
+  secrets:
+    - name: MONGODB_URL
+      value-from: arn:aws:secretsmanager:eu-central-1:586206156633:secret:Hackatum2025-8ehDyQ
