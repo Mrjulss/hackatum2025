@@ -1,7 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
+import { getFoundationScores } from "../services/api";
+import { ErrorState } from "./ErrorState";
+import { LoadingState } from "./LoadingState";
+import { EmptyState } from "./EmptyState";
 
 type MatchItem = {
   text: string;
@@ -16,80 +20,12 @@ type Foundation = {
   description: string;
   fundingAmount: string;
   matches: MatchItem[];
+  // Additional backend data
+  matchScore?: number;
+  legalForm?: string;
+  foerderbereichScope?: string;
+  website?: string;
 };
-
-const mockFoundations: Foundation[] = [
-  {
-    id: "1",
-    name: "Bürgerstiftung München",
-    logo: "/hero-avatar.svg",
-    purpose: "Förderung der Jugendhilfe",
-    description: "Unterstützt lokale Projekte zur Förderung von Kindern und Jugendlichen in München. Fokus auf Bildung und Integration.",
-    fundingAmount: "Bis zu 50.000€",
-    matches: [
-      { text: "Fördert lokale Projekte", type: "fit" },
-      { text: "Unterstützt Jugendinitiativen", type: "fit" },
-      { text: "Keine Personalkosten", type: "mismatch" },
-      { text: "Kofinanzierung nötig?", type: "question" },
-    ],
-  },
-  {
-    id: "2",
-    name: "BMW Foundation",
-    logo: "/hero-avatar.svg",
-    purpose: "Förderung von Wissenschaft und Forschung",
-    description: "Internationale Stiftung für soziale Innovation und nachhaltige Entwicklung mit Fokus auf Leadership-Programme.",
-    fundingAmount: "Bis zu 100.000€",
-    matches: [
-      { text: "Internationale Reichweite", type: "fit" },
-      { text: "Innovation & Technologie", type: "fit" },
-      { text: "Bewerbungsprozess komplex", type: "mismatch" },
-      { text: "Mehrjährige Förderung möglich?", type: "question" },
-    ],
-  },
-  {
-    id: "3",
-    name: "Stiftung Bildungspakt Bayern",
-    logo: "/hero-avatar.svg",
-    purpose: "Förderung von Bildung und Erziehung",
-    description: "Entwickelt innovative Bildungskonzepte für bayerische Schulen. Schwerpunkt auf digitaler Bildung und MINT-Förderung.",
-    fundingAmount: "Bis zu 30.000€",
-    matches: [
-      { text: "Bildungsprojekte", type: "fit" },
-      { text: "Bayern-Fokus", type: "fit" },
-      { text: "Nur für Schulprojekte", type: "mismatch" },
-      { text: "Projektlaufzeit flexibel?", type: "question" },
-    ],
-  },
-  {
-    id: "4",
-    name: "Robert Bosch Stiftung",
-    logo: "/hero-avatar.svg",
-    purpose: "Förderung des bürgerschaftlichen Engagements",
-    description: "Eine der größten unternehmensverbundenen Stiftungen in Deutschland. Fördert Gesundheit, Bildung und Völkerverständigung.",
-    fundingAmount: "Bis zu 75.000€",
-    matches: [
-      { text: "Große Projektförderung", type: "fit" },
-      { text: "Bundesweite Reichweite", type: "fit" },
-      { text: "Hohe Konkurrenz", type: "mismatch" },
-      { text: "Matching Funds erforderlich?", type: "question" },
-    ],
-  },
-  {
-    id: "5",
-    name: "Stadtwerke München Bildungsstiftung",
-    logo: "/hero-avatar.svg",
-    purpose: "Förderung von Kunst und Kultur",
-    description: "Unterstützt kulturelle und bildungsbezogene Projekte in München. Besonderer Fokus auf Nachhaltigkeit und Umweltbildung.",
-    fundingAmount: "Bis zu 25.000€",
-    matches: [
-      { text: "München-Bezug", type: "fit" },
-      { text: "Nachhaltigkeitsfokus", type: "fit" },
-      { text: "Begrenzte Mittel", type: "mismatch" },
-      { text: "Reporting-Aufwand?", type: "question" },
-    ],
-  },
-];
 
 const MatchIcon = ({ type }: { type: MatchItem["type"] }) => {
   if (type === "fit") {
@@ -168,21 +104,65 @@ const FoundationCard = ({
           <div className="border-t pt-4">
             <h4 className="text-lg font-semibold text-gray-900 mb-3">Detaillierte Informationen</h4>
             <div className="space-y-4">
+              {/* Match Score */}
+              {foundation.matchScore !== undefined && (
+                <div>
+                  <h5 className="font-medium text-gray-700 mb-2">Match Score</h5>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden">
+                      <div 
+                        className="bg-gradient-to-r from-green-500 to-blue-500 h-full rounded-full transition-all duration-500"
+                        style={{ width: `${foundation.matchScore * 100}%` }}
+                      ></div>
+                    </div>
+                    <span className="text-lg font-bold text-gray-900">
+                      {Math.round(foundation.matchScore * 100)}%
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Legal Form & Scope */}
+              <div className="grid grid-cols-2 gap-4">
+                {foundation.legalForm && (
+                  <div>
+                    <h5 className="font-medium text-gray-700 mb-1">Rechtsform</h5>
+                    <p className="text-gray-600">{foundation.legalForm}</p>
+                  </div>
+                )}
+                {foundation.foerderbereichScope && (
+                  <div>
+                    <h5 className="font-medium text-gray-700 mb-1">Förderbereich</h5>
+                    <p className="text-gray-600 capitalize">{foundation.foerderbereichScope}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Website */}
+              {foundation.website && (
+                <div>
+                  <h5 className="font-medium text-gray-700 mb-2">Weitere Informationen</h5>
+                  <a 
+                    href={foundation.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-[#1b98d5] hover:underline"
+                  >
+                    <span>Website besuchen</span>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                </div>
+              )}
+
+              {/* Purpose Details */}
               <div>
                 <h5 className="font-medium text-gray-700 mb-2">Förderschwerpunkte</h5>
                 <p className="text-gray-600">
                   Diese Stiftung konzentriert sich auf nachhaltige Projekte mit sozialem Impact. 
                   Besondere Förderung erhalten innovative Ansätze im Bereich {foundation.purpose.toLowerCase()}.
                 </p>
-              </div>
-              <div>
-                <h5 className="font-medium text-gray-700 mb-2">Bewerbungsanforderungen</h5>
-                <ul className="list-disc list-inside text-gray-600 space-y-1">
-                  <li>Detaillierter Projektplan</li>
-                  <li>Kostenaufstellung</li>
-                  <li>Nachweis der Gemeinnützigkeit</li>
-                  <li>Referenzen ähnlicher Projekte</li>
-                </ul>
               </div>
             </div>
           </div>
@@ -249,6 +229,49 @@ const FoundationCard = ({
 
 export function ResultsView() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [foundations, setFoundations] = useState<Foundation[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Fetch real data from backend
+    const fetchFoundations = async () => {
+      try {
+        const response = await getFoundationScores(undefined, 5);
+        
+        if (response && response.success && response.foundations) {
+          // Map backend data to frontend Foundation type
+          const mappedFoundations: Foundation[] = response.foundations.map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            logo: f.logo,
+            purpose: f.purpose,
+            description: f.description,
+            fundingAmount: f.funding_amount,
+            matches: f.matches,
+            // Store additional data for detail view
+            matchScore: f.match_score,
+            legalForm: f.legal_form,
+            foerderbereichScope: f.foerderbereich_scope,
+            website: f.website,
+          }));
+          
+          setFoundations(mappedFoundations);
+          console.log("✅ Loaded foundations from backend:", mappedFoundations);
+        } else {
+          setError("Backend ist nicht erreichbar. Bitte starte den Server.");
+          console.warn("⚠️ Backend unavailable");
+        }
+      } catch (error) {
+        console.error("❌ Error fetching foundations:", error);
+        setError("Fehler beim Laden der Stiftungen. Bitte versuche es später erneut.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchFoundations();
+  }, []);
 
   const handleToggleExpand = (id: string) => {
     setExpandedId(expandedId === id ? null : id);
@@ -256,13 +279,25 @@ export function ResultsView() {
 
   const isAnyExpanded = expandedId !== null;
 
+  if (isLoading) {
+    return <LoadingState />;
+  }
+
+  if (error) {
+    return <ErrorState message={error} />;
+  }
+
+  if (foundations.length === 0) {
+    return <EmptyState />;
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-slate-50 p-8">
       {/* Header - Hide when expanded */}
       {!isAnyExpanded && (
         <div className="mb-8 animate-slideDown">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Dein Perfect Match: {mockFoundations.length} Stiftungen gefunden
+            Dein Perfect Match: {foundations.length} Stiftungen gefunden
           </h1>
           <p className="text-gray-600">
             Basierend auf deiner Projektidee haben wir diese passenden Fördermöglichkeiten identifiziert.
@@ -272,7 +307,7 @@ export function ResultsView() {
 
       {/* Foundation Cards */}
       <div className={isAnyExpanded ? '' : 'space-y-4'}>
-        {mockFoundations.map((foundation, index) => {
+        {foundations.map((foundation, index) => {
           const isExpanded = expandedId === foundation.id;
           const shouldShow = !isAnyExpanded || isExpanded;
           
