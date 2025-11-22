@@ -1,5 +1,6 @@
 version: 1.0
-runtime: python3
+runtime: python311
+
 
 build:
   commands:
@@ -10,6 +11,7 @@ build:
       - cd backend && uv sync
 
 run:
+  runtime-version: 3.11
   pre-run:  
     - pip3 install --upgrade pip
     - pip3 install uv
