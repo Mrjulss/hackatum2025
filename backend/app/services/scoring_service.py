@@ -40,7 +40,6 @@ class ScoringService:
                 model="anthropic/claude-haiku-4-5",
                 api_key=SecretStr(settings.REQUESTY_API_KEY),
                 base_url=settings.REQUESTY_BASE_URL,
-                temperature=0.3,  # Lower temperature for more consistent scoring
             )
             logger.info("Requesty AI model initialized: anthropic/claude-haiku-4-5")
         except Exception as e:
