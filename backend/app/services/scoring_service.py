@@ -100,7 +100,10 @@ def calculate_mock_score(foundation: Dict[str, Any], matches: List[MatchItem]) -
 
 def format_funding_amount(foerderhoehe: Dict[str, Any]) -> str:
     """Format funding amount for display."""
-    max_amount = foerderhoehe.get("max_amount", 0)
+    max_amount = foerderhoehe.get("max_amount")
+    
+    if max_amount is None or max_amount == 0:
+        return "Förderhöhe nicht angegeben"
     
     if max_amount >= 100000:
         return f"Bis zu {int(max_amount/1000)}k€"
@@ -125,6 +128,20 @@ def convert_foundation_to_scored(foundation: Dict[str, Any]) -> FoundationScore:
     # Format funding amount
     funding_amount = format_funding_amount(foundation.get("foerderhoehe", {}))
     
+    # Helper function to safely get dict values, handling None
+    def safe_get_dict(key: str, default: Dict[str, Any] = None) -> Dict[str, Any]:
+        value = foundation.get(key)
+        if value is None or not isinstance(value, dict):
+            return default or {}
+        return value
+    
+    # Helper function to safely get list values, handling None
+    def safe_get_list(key: str, default: List = None) -> List:
+        value = foundation.get(key)
+        if value is None or not isinstance(value, list):
+            return default or []
+        return value
+    
     return FoundationScore(
         id=foundation.get("_id", foundation.get("id", "")),
         name=foundation.get("name", ""),
@@ -138,11 +155,11 @@ def convert_foundation_to_scored(foundation: Dict[str, Any]) -> FoundationScore:
         long_description=foundation.get("long_description", ""),
         legal_form=foundation.get("legal_form", "Stiftung"),
         gemeinnuetzige_zwecke=zwecke,
-        antragsprozess=foundation.get("antragsprozess", {}),
-        foerderbereich=foundation.get("foerderbereich", {}),
-        foerderhoehe=foundation.get("foerderhoehe", {}),
-        contact=foundation.get("contact", {}),
-        past_projects=foundation.get("past_projects", []),
+        antragsprozess=safe_get_dict("antragsprozess"),
+        foerderbereich=safe_get_dict("foerderbereich"),
+        foerderhoehe=safe_get_dict("foerderhoehe"),
+        contact=safe_get_dict("contact"),
+        past_projects=safe_get_list("past_projects"),
         website=foundation.get("website", "")
     )
 

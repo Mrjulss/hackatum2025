@@ -29,11 +29,11 @@ export type GeographicArea = {
 };
 
 export type FundingAmount = {
-  category: string;
-  min_amount: number;
-  max_amount: number;
-  average_amount?: number;
-  total_budget?: number;
+  category: string | null;
+  min_amount: number | null;
+  max_amount: number | null;
+  average_amount?: number | null;
+  total_budget?: number | null;
 };
 
 export type ContactInfo = {
