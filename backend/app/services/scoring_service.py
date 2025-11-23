@@ -443,6 +443,14 @@ Beschreibung: {long_desc[:500]}{"..." if len(long_desc) > 500 else ""}
                         max_amount if max_amount is not None else 50000
                     )
 
+        # Sanitize antragsprozess to remove AI reasoning contamination
+        antragsprozess_raw = foundation.get("antragsprozess")
+        antragsprozess_clean = (
+            self._sanitize_antragsprozess(antragsprozess_raw)
+            if isinstance(antragsprozess_raw, dict)
+            else {}
+        )
+
         score = FoundationScore(
             id=foundation_id,
             name=foundation.get("name", "Unbekannter Name"),
@@ -457,9 +465,7 @@ Beschreibung: {long_desc[:500]}{"..." if len(long_desc) > 500 else ""}
             long_description=foundation.get("long_description", ""),
             legal_form=foundation.get("legal_form", "Stiftung"),
             gemeinnuetzige_zwecke=zwecke,
-            antragsprozess=foundation.get("antragsprozess")
-            if isinstance(foundation.get("antragsprozess"), dict)
-            else {},
+            antragsprozess=antragsprozess_clean,
             foerderbereich=foundation.get("foerderbereich")
             if isinstance(foundation.get("foerderbereich"), dict)
             else {},
@@ -474,6 +480,73 @@ Beschreibung: {long_desc[:500]}{"..." if len(long_desc) > 500 else ""}
         )
         logger.debug(f"Successfully created FoundationScore for {foundation_id}.")
         return score
+
+    def _sanitize_rolling_info(self, rolling_info: Optional[str]) -> Optional[str]:
+        """
+        Clean up rolling_info field to remove AI reasoning contamination.
+        
+        Removes internal notes, translations, and reasoning that may have been
+        included in the data from AI-generated content.
+        """
+        if not rolling_info:
+            return rolling_info
+        
+        # List of markers that indicate reasoning contamination
+        contamination_markers = [
+            "Translation:",
+            "Text used:",
+            "Note:",
+            "JSON Construction:",
+            "Wait,",
+            "Snippet",
+            "Setting deadline_type",
+            "(Translation:",
+            "Decision timeline:",
+            "Required documents:",
+            "Evaluation process:"
+        ]
+        
+        # Find the earliest contamination marker
+        earliest_pos = len(rolling_info)
+        for marker in contamination_markers:
+            pos = rolling_info.find(marker)
+            if pos != -1 and pos < earliest_pos:
+                earliest_pos = pos
+        
+        # Clean the text up to the contamination marker
+        clean_text = rolling_info[:earliest_pos].strip()
+        
+        # Remove trailing incomplete sentences
+        if clean_text and not clean_text.endswith(('.', '!', '?')):
+            # Find the last complete sentence
+            last_period = clean_text.rfind('.')
+            if last_period > 0:
+                clean_text = clean_text[:last_period + 1]
+        
+        # If we cleaned too much or got empty string, provide fallback
+        if not clean_text or len(clean_text) < 10:
+            return "Anträge sind fortlaufend möglich"
+        
+        # Limit to first 2-3 sentences if still too long
+        if len(clean_text) > 300:
+            sentences = clean_text.split('. ')
+            clean_text = '. '.join(sentences[:2]) + '.'
+        
+        return clean_text
+
+    def _sanitize_antragsprozess(self, antragsprozess: Dict[str, Any]) -> Dict[str, Any]:
+        """Sanitize application process data, particularly the rolling_info field."""
+        if not isinstance(antragsprozess, dict):
+            return antragsprozess
+        
+        # Create a copy to avoid modifying the original
+        sanitized = antragsprozess.copy()
+        
+        # Clean the rolling_info field if it exists
+        if "rolling_info" in sanitized and sanitized["rolling_info"]:
+            sanitized["rolling_info"] = self._sanitize_rolling_info(sanitized["rolling_info"])
+        
+        return sanitized
 
     def _format_funding_amount(self, foerderhoehe: Dict[str, Any]) -> str:
         """Format funding amount for display."""

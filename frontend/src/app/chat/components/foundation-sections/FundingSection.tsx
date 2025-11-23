@@ -8,7 +8,7 @@ export const FundingSection = ({ foerderhoehe }: FundingSectionProps) => {
   // Helper to get default values based on category
   const getDefaultsFromCategory = (category: string | null) => {
     if (!category) return { min: 0, max: 0, scaleMax: 50000 };
-    
+
     const cat = category.toLowerCase();
     if (cat === "large" || cat === "großförderung" || cat === "grossfoerderung") {
       return { min: 50000, max: 200000, scaleMax: 100000 };
@@ -23,11 +23,11 @@ export const FundingSection = ({ foerderhoehe }: FundingSectionProps) => {
   // Handle null values with category-based fallbacks
   const category = foerderhoehe.category || null;
   const defaults = getDefaultsFromCategory(category);
-  
+
   const minAmount = foerderhoehe.min_amount ?? defaults.min;
   const maxAmount = foerderhoehe.max_amount ?? defaults.max;
   const scaleMax = defaults.scaleMax;
-  
+
   // Map category to display name
   const getCategoryDisplayName = (cat: string | null): string => {
     if (!cat) return "Nicht angegeben";
@@ -43,9 +43,11 @@ export const FundingSection = ({ foerderhoehe }: FundingSectionProps) => {
   };
 
   const categoryDisplay = getCategoryDisplayName(category);
-  
-  // Don't render if we don't have valid funding amounts and no category
-  if (!minAmount && !maxAmount && !category) {
+
+  // Show "not available" if we have no valid funding data (both are 0 or both are null)
+  const hasValidFundingData = (minAmount > 0 || maxAmount > 0) && !(minAmount === 0 && maxAmount === 0);
+
+  if (!hasValidFundingData) {
     return (
       <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
         <div className="flex items-center gap-2 mb-4">
@@ -76,7 +78,7 @@ export const FundingSection = ({ foerderhoehe }: FundingSectionProps) => {
           </span>
         )}
       </div>
-      
+
       {/* Single Bar Chart Visualization */}
       <div className="space-y-3">
         <div className="flex justify-between items-baseline">
@@ -89,16 +91,16 @@ export const FundingSection = ({ foerderhoehe }: FundingSectionProps) => {
         {minAmount >= 0 && maxAmount > minAmount && (
           <div className="relative h-5 bg-blue-100 rounded-full overflow-hidden">
             {/* Highlighted funding range */}
-            <div 
+            <div
               className="absolute h-full bg-[#1b98d5] rounded-full"
-              style={{ 
+              style={{
                 left: `${leftPercent}%`,
                 width: `${widthPercent}%`
               }}
             ></div>
           </div>
         )}
-        
+
         {/* Scale labels - dynamic based on category */}
         <div className="flex justify-between text-xs text-gray-500">
           <span>0 €</span>
