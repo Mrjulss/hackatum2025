@@ -13,7 +13,7 @@ export function ResultsView() {
   const [foundations, setFoundations] = useState<Foundation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { foundationResults: sessionResults, setFoundationResults } = useSession();
+  const { sessionId, foundationResults: sessionResults, setFoundationResults } = useSession();
 
   useEffect(() => {
     // Check if we have session data first
@@ -47,8 +47,15 @@ export function ResultsView() {
 
     // Fetch real data from backend if no session data
     const fetchFoundations = async () => {
+      // Need a session to fetch foundation scores
+      if (!sessionId) {
+        setError("Keine Session gefunden. Bitte starte einen Chat.");
+        setIsLoading(false);
+        return;
+      }
+
       try {
-        const response = await getFoundationScores(undefined, 5);
+        const response = await getFoundationScores(sessionId, 5);
         
         if (response && response.success && response.foundations) {
           // Map backend data to frontend Foundation type
@@ -89,7 +96,7 @@ export function ResultsView() {
     };
 
     fetchFoundations();
-  }, [sessionResults, setFoundationResults]);
+  }, [sessionId, sessionResults, setFoundationResults]);
 
   const handleToggleExpand = (id: string) => {
     setExpandedId(expandedId === id ? null : id);

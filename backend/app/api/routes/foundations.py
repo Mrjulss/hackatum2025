@@ -1,11 +1,17 @@
 from fastapi import APIRouter, HTTPException, Query, Body
 from typing import List, Optional
+from pydantic import BaseModel
 from app.core.database import get_database
 from app.models.scores import FoundationScoresResponse
 from app.models.project_description import ProjectDescription, CharitablePurpose
 from app.services.scoring_service import score_foundations
 
 router = APIRouter()
+
+
+class FoundationScoresRequest(BaseModel):
+    """Request body for foundation scores endpoint."""
+    session_id: str
 
 
 @router.get("/")
@@ -33,11 +39,7 @@ async def get_foundations():
 
 @router.get("/scores", response_model=FoundationScoresResponse)
 async def get_foundation_scores_get(
-    name: Optional[str] = Query("", description="Name of the project"),
-    
-    description: Optional[str] = Query("", description="Description of the project idea"),
-    target_group: Optional[str] = Query("", description="Target group of the project"),
-    charitable_purpose: Optional[str] = Query(None, description="Charitable purpose of the project (one of the CharitablePurpose enum values). Required for accurate matching."),
+    session_id: str,
     limit: int = Query(5, description="Number of top matches to return", ge=1, le=20)
 ):
     """
@@ -47,44 +49,25 @@ async def get_foundation_scores_get(
     For better type safety and required fields, consider using the POST version.
     """
     try:
-        # Convert query parameters to ProjectDescription
-        # Find matching CharitablePurpose enum value
-        purpose_enum = None
-        if charitable_purpose:
-            for purpose in CharitablePurpose:
-                if purpose.value == charitable_purpose:
-                    purpose_enum = purpose
-                    break
-            
-            if purpose_enum is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid charitable_purpose. Must be one of: {[p.value for p in CharitablePurpose]}"
-                )
-        else:
-            # If no charitable_purpose provided, use a default (first one) but warn
-            # In production, you might want to require this
-            purpose_enum = CharitablePurpose.SCIENCE_AND_RESEARCH
-            print("⚠️ No charitable_purpose provided in GET request, using default")
-        
-        project = ProjectDescription(
-            name=name or "Unnamed Project",
-            description=description or "No description provided",
-            target_group=target_group or "General public",
-            charitable_purpose=[purpose_enum]  # Convert to list format
-        )
-        
         db = get_database()
+        session = await db.sessions.find_one({"session_id": session_id})
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        project_description = session["project_description"]
         
         # Score foundations using AI
-        scored_foundations = await score_foundations(project, limit, db)
+        scored_foundations = await score_foundations(project_description, limit, db)
+
+        project_name = project_description["name"]
+        project_description = project_description["description"]
         
         # Generate query summary
         query_summary = f"Found {len(scored_foundations)} matching foundations"
-        if project.name and project.name != "Unnamed Project":
-            query_summary += f" for project: {project.name}"
-        if project.description and project.description != "No description provided":
-            query_summary += f" ({project.description[:50]}...)" if len(project.description) > 50 else f" ({project.description})"
+        if project_name and project_name != "Unnamed Project":
+            query_summary += f" for project: {project_name}"
+        if project_description and project_description != "No description provided":
+            query_summary += f" ({project_description[:50]}...)" if len(project_description) > 50 else f" ({project_description})"
         
         return FoundationScoresResponse(
             success=True,
@@ -106,7 +89,7 @@ async def get_foundation_scores_get(
 
 @router.post("/scores", response_model=FoundationScoresResponse)
 async def get_foundation_scores_post(
-    project: ProjectDescription = Body(..., description="Project description for matching"),
+    request: FoundationScoresRequest = Body(...),
     limit: int = Query(5, description="Number of top matches to return", ge=1, le=20)
 ):
     """
@@ -125,21 +108,20 @@ async def get_foundation_scores_post(
     try:
         db = get_database()
         
-        # Score foundations using AI
-        scored_foundations = await score_foundations(project, limit, db)
-        
-        # Generate query summary
-        query_summary = f"Found {len(scored_foundations)} matching foundations"
-        if project.name:
-            query_summary += f" for project: {project.name}"
-        if project.description:
-            query_summary += f" ({project.description[:50]}...)" if len(project.description) > 50 else f" ({project.description})"
+        session = await db.sessions.find_one({"session_id": request.session_id})
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        project_description = session["project_description"]
+
+          # Score foundations using AI
+        scored_foundations = await score_foundations(ProjectDescription(**project_description), limit, db)
         
         return FoundationScoresResponse(
             success=True,
             count=len(scored_foundations),
             foundations=scored_foundations,
-            query_summary=query_summary
+            query_summary="Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
         )
     except Exception as e:
         print(f"❌ Error in get_foundation_scores_post: {e}")
