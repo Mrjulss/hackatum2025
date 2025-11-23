@@ -66,6 +66,7 @@ class ScoringService:
         Returns:
             List of FoundationScore objects, sorted by match score (highest first)
         """
+        print("🚀 Starting foundation scoring process in STRICT mode (fallbacks disabled)...")
         if db is None:
             db = get_database()
 
@@ -110,6 +111,7 @@ class ScoringService:
         )
 
         # Step 3: Use LLM to score and analyze foundations
+        print("INFO: Step 3: Evaluating with LLM...")
         try:
             scored_foundations = await self._evaluate_with_llm(
                 project, candidate_foundations
@@ -117,15 +119,16 @@ class ScoringService:
 
             # Sort by match score and limit
             scored_foundations.sort(key=lambda x: x.match_score, reverse=True)
+            print(f"✅ LLM evaluation successful, returning {len(scored_foundations)} sorted foundations.")
             return scored_foundations[:limit]
 
         except Exception as e:
-            print(f"❌ Error in LLM evaluation: {e}")
+            print(f"❌ FATAL: Error in LLM evaluation: {e}")
             import traceback
-
             traceback.print_exc()
-            # Fallback: return basic scored foundations based on text search
-            return self._fallback_scoring(candidate_foundations, limit)
+            # Re-raise the exception to avoid fallback
+            raise
+
 
     async def _filter_by_charitable_purpose(
         self, db: AsyncIOMotorDatabase, charitable_purposes: List[str]
@@ -142,6 +145,7 @@ class ScoringService:
         Returns:
             List of foundation IDs that match at least one purpose
         """
+        print(f"INFO: Filtering foundations by charitable purposes: {charitable_purposes}...")
         try:
             # Find foundations where ANY of the charitable purposes appears in gemeinnuetzige_zwecke
             cursor = db.foundations.find(
@@ -149,10 +153,12 @@ class ScoringService:
             )
 
             foundations = await cursor.to_list(length=None)
+            print(f"DEBUG: Found {len(foundations)} raw documents from database.")
 
             foundation_ids = []
             for foundation in foundations:
                 if foundation is None:
+                    print("DEBUG: Skipping a None foundation document.")
                     continue
 
                 if foundation.get("_id") is not None:
@@ -160,11 +166,15 @@ class ScoringService:
                     continue
 
                 if foundation.get("id"):
+                    print(f"DEBUG: Found foundation with 'id' instead of '_id': {foundation.get('id')}")
                     foundation_ids.append(foundation["id"])
+            
+            print(f"✅ Successfully filtered and found {len(foundation_ids)} foundation IDs.")
             return foundation_ids
         except Exception as e:
-            print(f"❌ Error filtering by charitable purpose: {e}")
-            return []
+            print(f"❌ FATAL: Error filtering by charitable purpose: {e}")
+            raise
+
 
     async def _text_search_foundations(
         self,
@@ -174,93 +184,69 @@ class ScoringService:
         limit: int,
     ) -> List[Dict[str, Any]]:
         """
-        Perform text search on foundations, combining long_description and past_projects.
+        Perform text search on foundations using MongoDB's $text operator.
 
         Returns list of foundation documents sorted by relevance.
+        Raises:
+            Exception: If the MongoDB text search fails.
         """
-        # Fetch all matching foundations
-        cursor = db.foundations.find({"_id": {"$in": foundation_ids}})
-        all_foundations = await cursor.to_list(length=None)
-
-        if not all_foundations:
+        print(f"INFO: Performing MongoDB text search for: '{search_text[:100]}...'")
+        if not foundation_ids:
+            print("⚠️ WARNING: No foundation IDs provided for text search. Returning empty list.")
             return []
 
-        # Try MongoDB text search if index exists
         try:
-            # Check if text index exists by trying a text search query
             # Note: $text must be at top level
-            text_results = []
-            # Try to find documents matching text search, then filter by IDs
             query = {"$text": {"$search": search_text}, "_id": {"$in": foundation_ids}}
-
-            async for doc in (
+            
+            cursor = (
                 db.foundations.find(query, {"score": {"$meta": "textScore"}})
                 .sort([("score", {"$meta": "textScore"})])
                 .limit(limit)
-            ):
-                text_results.append(doc)
+            )
+            
+            text_results = await cursor.to_list(length=limit)
 
             if text_results:
-                print(
-                    f"✅ Using MongoDB text search, found {len(text_results)} results"
-                )
+                print(f"✅ MongoDB text search successful, found {len(text_results)} results.")
                 return text_results
+            else:
+                print("⚠️ WARNING: MongoDB text search returned no results.")
+                return []
+
         except Exception as e:
-            # Text index might not exist or query syntax issue
-            print(f"⚠️ MongoDB text search not available (index may not exist): {e}")
+            print(f"❌ FATAL: MongoDB text search failed. Ensure a text index exists on the 'foundations' collection.")
+            print(f"   Error details: {e}")
+            # Raising the exception is critical to avoid silent failures.
+            # A text index is required for this functionality.
+            # Example Mongo Shell command to create index:
+            # db.foundations.createIndex({ "long_description": "text", "short_description": "text", "name": "text" })
+            raise
 
-        # Fallback: simple keyword matching in memory
-        # Combine long_description and past_projects for search
-        search_keywords = [
-            kw.lower() for kw in search_text.split() if len(kw) > 2
-        ]  # Filter short words
-        scored = []
-
-        for foundation in all_foundations:
-            # Build searchable text from long_description and past_projects
-            searchable_parts = [
-                foundation.get("long_description", ""),
-                foundation.get("short_description", ""),
-            ]
-
-            # Add past projects descriptions
-            for project in foundation.get("past_projects", []):
-                project_desc = project.get("description", "")
-                if project_desc:
-                    searchable_parts.append(project_desc)
-
-            searchable = " ".join(searchable_parts).lower()
-
-            # Count keyword matches (weighted: more matches = higher score)
-            matches = sum(1 for keyword in search_keywords if keyword in searchable)
-
-            if matches > 0:
-                # Calculate a simple relevance score
-                # Base score on number of matches and length of searchable text (shorter = more relevant)
-                relevance = matches / max(len(search_keywords), 1)
-                scored.append((relevance, matches, foundation))
-
-        # Sort by relevance (higher first), then by match count
-        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
-        return [foundation for _, _, foundation in scored[:limit]]
 
     async def _evaluate_with_llm(
         self, project: ProjectDescription, candidate_foundations: List[Dict[str, Any]]
     ) -> List[FoundationScore]:
         """
         Use LLM to evaluate and score candidate foundations.
+        Raises:
+            ValueError: If the LLM fails to evaluate one of the candidate foundations.
         """
+        print(f"INFO: Evaluating {len(candidate_foundations)} candidates with LLM...")
         # Build prompt with project and foundation details
         prompt = self._create_scoring_prompt()
 
         # Format foundations for prompt
         foundations_text = self._format_foundations_for_prompt(candidate_foundations)
+        print(f"DEBUG: Formatted prompt text length: {len(foundations_text)}")
 
         # Invoke LLM with structured output
         chain = prompt | self.structured_llm
         charitable_purposes_str = ", ".join(
             [p.value for p in project.charitable_purpose]
         )
+        
+        print("INFO: Invoking LLM for foundation evaluation...")
         parsed_output: ScoringResponse = chain.invoke(
             {
                 "project_name": project.name,
@@ -271,14 +257,16 @@ class ScoringService:
             }
         )
 
-        print(f"✅ LLM evaluated {len(parsed_output.evaluations)} foundations")
+        print(f"✅ LLM evaluated {len(parsed_output.evaluations)} foundations.")
+        if len(parsed_output.evaluations) != len(candidate_foundations):
+            print(f"⚠️ WARNING: LLM returned a different number of evaluations ({len(parsed_output.evaluations)}) than candidates provided ({len(candidate_foundations)}).")
 
         # Create a mapping from foundation_id to evaluation
         evaluation_map = {
             eval.foundation_id: eval for eval in parsed_output.evaluations
         }
 
-        # Convert to FoundationScore objects
+        # Convert to FoundationScore objects, ensuring all candidates were evaluated
         scored_foundations = []
         for foundation in candidate_foundations:
             foundation_id = foundation.get("_id", foundation.get("id", ""))
@@ -289,12 +277,10 @@ class ScoringService:
                 scored = self._convert_to_foundation_score(foundation, evaluation)
                 scored_foundations.append(scored)
             else:
-                # If LLM didn't evaluate this foundation, use fallback
-                print(
-                    f"⚠️ No LLM evaluation for foundation {foundation_id}, using fallback"
-                )
-                scored = self._convert_to_foundation_score_fallback(foundation)
-                scored_foundations.append(scored)
+                # If LLM didn't evaluate this foundation, it's a critical error
+                error_msg = f"FATAL: LLM failed to return an evaluation for foundation ID: {foundation_id}. Halting process."
+                print(error_msg)
+                raise ValueError(error_msg)
 
         return scored_foundations
 
@@ -383,6 +369,9 @@ Beschreibung: {long_desc[:500]}{"..." if len(long_desc) > 500 else ""}
         self, foundation: Dict[str, Any], evaluation: FoundationEvaluation
     ) -> FoundationScore:
         """Convert foundation document and LLM evaluation to FoundationScore."""
+        foundation_id = foundation.get("_id", foundation.get("id", "N/A"))
+        print(f"DEBUG: Converting foundation {foundation_id} to FoundationScore object.")
+
         # Convert evaluation matches to MatchItem list
         matches = []
         for fit_text in evaluation.fits:
@@ -391,6 +380,7 @@ Beschreibung: {long_desc[:500]}{"..." if len(long_desc) > 500 else ""}
             matches.append(MatchItem(text=mismatch_text, type="mismatch"))
         for question_text in evaluation.questions:
             matches.append(MatchItem(text=question_text, type="question"))
+        print(f"DEBUG: Created {len(matches)} match items for foundation {foundation_id}.")
 
         # Get foundation details
         zwecke = foundation.get("gemeinnuetzige_zwecke", [])
@@ -399,16 +389,18 @@ Beschreibung: {long_desc[:500]}{"..." if len(long_desc) > 500 else ""}
         # Format funding amount
         funding_amount = format_funding_amount(foundation.get("foerderhoehe", {}))
 
-        # Helper functions
+        # Helper functions for safe data extraction
         def safe_get_dict(key: str, default: Dict[str, Any] = None) -> Dict[str, Any]:
             value = foundation.get(key)
             if value is None or not isinstance(value, dict):
+                print(f"DEBUG: Key '{key}' not found or not a dict for foundation {foundation_id}. Using default.")
                 return default or {}
             return value
 
         def safe_get_list(key: str, default: List = None) -> List:
             value = foundation.get(key)
             if value is None or not isinstance(value, list):
+                print(f"DEBUG: Key '{key}' not found or not a list for foundation {foundation_id}. Using default.")
                 return default or []
             return value
 
@@ -420,39 +412,24 @@ Beschreibung: {long_desc[:500]}{"..." if len(long_desc) > 500 else ""}
             max_amount = foerderhoehe_raw.get("max_amount")
 
             if min_amount is None or max_amount is None:
+                print(f"DEBUG: Applying default funding amounts for category '{category}' for foundation {foundation_id}.")
                 category_lower = str(category).lower() if category else ""
                 if category_lower in ["large", "großförderung", "grossfoerderung"]:
-                    foerderhoehe_raw["min_amount"] = (
-                        min_amount if min_amount is not None else 50000
-                    )
-                    foerderhoehe_raw["max_amount"] = (
-                        max_amount if max_amount is not None else 200000
-                    )
+                    foerderhoehe_raw["min_amount"] = min_amount if min_amount is not None else 50000
+                    foerderhoehe_raw["max_amount"] = max_amount if max_amount is not None else 200000
                 elif category_lower in ["small", "kleinförderung", "kleinfoerderung"]:
-                    foerderhoehe_raw["min_amount"] = (
-                        min_amount if min_amount is not None else 0
-                    )
-                    foerderhoehe_raw["max_amount"] = (
-                        max_amount if max_amount is not None else 5000
-                    )
-                elif category_lower in [
-                    "medium",
-                    "mittelgroße förderung",
-                    "mittelgrosse foerderung",
-                ]:
-                    foerderhoehe_raw["min_amount"] = (
-                        min_amount if min_amount is not None else 5000
-                    )
-                    foerderhoehe_raw["max_amount"] = (
-                        max_amount if max_amount is not None else 50000
-                    )
+                    foerderhoehe_raw["min_amount"] = min_amount if min_amount is not None else 0
+                    foerderhoehe_raw["max_amount"] = max_amount if max_amount is not None else 5000
+                elif category_lower in ["medium", "mittelgroße förderung", "mittelgrosse foerderung"]:
+                    foerderhoehe_raw["min_amount"] = min_amount if min_amount is not None else 5000
+                    foerderhoehe_raw["max_amount"] = max_amount if max_amount is not None else 50000
 
-        return FoundationScore(
-            id=foundation.get("_id", foundation.get("id", "")),
-            name=foundation.get("name", ""),
+        score = FoundationScore(
+            id=foundation_id,
+            name=foundation.get("name", "Unbekannter Name"),
             logo="/hero-avatar.svg",
             purpose=purpose,
-            description=foundation.get("short_description", ""),
+            description=foundation.get("short_description", "Keine Beschreibung verfügbar."),
             funding_amount=funding_amount,
             match_score=evaluation.match_score,
             matches=matches,
@@ -466,38 +443,9 @@ Beschreibung: {long_desc[:500]}{"..." if len(long_desc) > 500 else ""}
             past_projects=safe_get_list("past_projects"),
             website=foundation.get("website", ""),
         )
+        print(f"✅ Successfully created FoundationScore for {foundation_id}.")
+        return score
 
-    def _convert_to_foundation_score_fallback(
-        self, foundation: Dict[str, Any]
-    ) -> FoundationScore:
-        """Fallback conversion when LLM evaluation is not available."""
-        # Use basic scoring
-        matches = [
-            MatchItem(
-                text="Grundlegende Kompatibilität basierend auf gemeinnützigem Zweck",
-                type="fit",
-            )
-        ]
-
-        return self._convert_to_foundation_score(
-            foundation,
-            FoundationEvaluation(
-                foundation_id=foundation.get("_id", foundation.get("id", "")),
-                match_score=0.5,  # Default score
-                fits=["Grundlegende Kompatibilität"],
-                mismatches=[],
-                questions=["Detaillierte Bewertung steht noch aus"],
-            ),
-        )
-
-    def _fallback_scoring(
-        self, candidate_foundations: List[Dict[str, Any]], limit: int
-    ) -> List[FoundationScore]:
-        """Fallback scoring when LLM fails."""
-        scored = []
-        for foundation in candidate_foundations[:limit]:
-            scored.append(self._convert_to_foundation_score_fallback(foundation))
-        return scored
 
 
 def format_funding_amount(foerderhoehe: Dict[str, Any]) -> str:
