@@ -81,7 +81,6 @@ class DocumentGenerationService:
         # Generate documents using agent with structured output
         try:
             print(f"📝 Generating documents with AI...")
-            print(f"Project query: {request.project_query or 'Unbekanntes Projekt'}")
             print(f"Documents to generate: {len(request.required_documents)}")
             
             # Build the human message with all context
@@ -173,29 +172,20 @@ BEISPIELE für gute Verbesserungsvorschläge:
 
 DOKUMENT-TYPEN UND IHRE ANFORDERUNGEN:
 
-PROJEKTBESCHREIBUNG:
-- Projekttitel und Zusammenfassung
-- Ausgangssituation und Problemstellung (Frage bei Unklarheit: Welches konkrete Problem wird gelöst?)
-- Zielgruppe und deren Bedürfnisse (Frage: Wer genau profitiert? Wie viele Personen?)
-- Projektziele (SMART-Ziele - Frage: Was soll konkret erreicht werden? Bis wann?)
-- Projektdurchführung (Methodik, Phasen, Meilensteine - Frage: Wie genau wird vorgegangen?)
-- Erwartete Ergebnisse und Wirkung (Frage: Welche messbaren Veränderungen werden erwartet?)
-- Nachhaltigkeit und langfristige Perspektive (Frage: Wie geht es nach Projektende weiter?)
-- WICHTIG: Überschriften in GROSSBUCHSTABEN, kein Markdown
+FORMAT:
+- PLAIN TEXT (kein Markdown: keine #, **, -, *, |)
+- Überschriften in GROSSBUCHSTABEN
+- Struktur durch Absätze und Zeilenumbrüche
 
-BUDGETPLAN:
-- Einfache tabellarische Auflistung mit Spalten durch mehrere Leerzeichen getrennt
-- Gesamtkalkulation mit Eigenanteil und beantragter Förderung
-- Realistische Beträge basierend auf der Förderhöhe der Stiftung
-- Bei fehlenden Zahlen: Frage nach konkreten Kostenposten und geschätzten Beträgen
-- WICHTIG: Keine Markdown-Tabellen (keine |), einfache Textformatierung
+HAUPTTEXT ("text"):
+- Vollständiger, verwendbarer Entwurf
+- KEINE Platzhalter oder [FRAGE: ...]
+- Bei fehlenden Infos: allgemein, aber professionell formulieren
 
-ZEITPLAN:
-- Klare Projektphasen mit Monatsangaben
-- Konkrete Meilensteine
-- Evaluationspunkte
-- Bei Unklarheit: Frage nach geplanter Projektdauer und wichtigen Zeitpunkten
-- WICHTIG: Einfache Liste, kein Markdown
+VERBESSERUNGEN ("improvements") - PFLICHT:
+- GENAU 3 konkrete Vorschläge pro Dokument
+- Array darf NIEMALS leer sein
+- Formuliere als klare Handlungsaufforderungen mit Beispielen
 
 EVALUATION:
 - Messbare quantitative und qualitative Indikatoren
@@ -213,11 +203,14 @@ EVALUATION:
         """Build the human message with all context for document generation."""
         return f"""Erstelle professionelle Antragsunterlagen basierend auf folgenden Informationen:
 
-PROJEKTIDEE:
-{project_query}
+PROJEKT: {project_query}
+CHAT: {chat_context}
+STIFTUNG: {foundation_context}
+DOKUMENTE: {documents_info}
 
-CHAT-VERLAUF (Kontext zum Projekt):
-{chat_context}
+Für JEDES Dokument:
+1. "text": Vollständiger Entwurf (KEINE Platzhalter)
+2. "improvements": GENAU 3 konkrete Vorschläge (z.B. "Präzisiere Zielgruppe: Wie viele Personen, welche Altersgruppe?")
 
 STIFTUNGSINFORMATIONEN:
 {foundation_context}
@@ -259,39 +252,50 @@ FORMATIERUNG:
 WICHTIG: Das improvements-Array MUSS für JEDES Dokument GENAU 3 Einträge haben!"""
     
     def _build_chat_context(self, messages: List) -> str:
-        """Build context from chat messages."""
+        """Build context from chat messages - limited to reduce token usage."""
         if not messages:
             return "Keine zusätzlichen Informationen aus dem Chat vorhanden."
         
+        # Limit to last 8 messages and truncate long messages
+        limited_messages = messages[-8:] if len(messages) > 8 else messages
         context_parts = []
-        for msg in messages:
+        for msg in limited_messages:
             role = "Nutzer" if msg.role == "user" else "Assistent"
-            context_parts.append(f"{role}: {msg.content}")
+            # Truncate individual messages if too long (max 300 chars per message)
+            content = msg.content
+            if len(content) > 300:
+                content = content[:300] + "..."
+            context_parts.append(f"{role}: {content}")
         
         return "\n".join(context_parts)
     
     def _build_foundation_context(self, foundation_name: str | None, foundation_details: dict | None) -> str:
-        """Build context about the foundation."""
+        """Build context about the foundation - only essential information to reduce token usage."""
         if not foundation_name:
             return "Keine spezifischen Stiftungsinformationen vorhanden."
         
         context = f"Stiftung: {foundation_name}\n"
         
         if foundation_details:
+            # Only include purpose if it's concise (max 200 chars)
             if "purpose" in foundation_details and foundation_details["purpose"]:
-                context += f"Förderzweck: {foundation_details['purpose']}\n"
+                purpose = foundation_details["purpose"]
+                if len(purpose) > 200:
+                    purpose = purpose[:200] + "..."
+                context += f"Förderzweck: {purpose}\n"
+            # Include funding amount (essential and concise)
             if "foerderhoehe" in foundation_details and foundation_details["foerderhoehe"]:
                 foerderhoehe = foundation_details["foerderhoehe"]
                 min_amount = foerderhoehe.get('min_amount') or 0
                 max_amount = foerderhoehe.get('max_amount') or 0
                 if min_amount or max_amount:
                     context += f"Förderhöhe: {min_amount:,.0f}€ - {max_amount:,.0f}€\n"
-            if "gemeinnuetzige_zwecke" in foundation_details and foundation_details["gemeinnuetzige_zwecke"]:
-                zwecke = ", ".join(foundation_details["gemeinnuetzige_zwecke"])
-                context += f"Gemeinnützige Zwecke: {zwecke}\n"
+            # Include funding scope if concise (max 150 chars)
             if "foerderbereich" in foundation_details and foundation_details["foerderbereich"]:
                 scope = foundation_details["foerderbereich"].get("scope", "")
                 if scope:
+                    if len(scope) > 150:
+                        scope = scope[:150] + "..."
                     context += f"Förderbereich: {scope}\n"
         
         return context
