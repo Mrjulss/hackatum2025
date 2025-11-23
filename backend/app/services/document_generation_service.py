@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, SecretStr
 
 from app.models.document_generation import (
-    GenerateDocumentsRequest,
+    GenerateDocumentsRequestLegacy,
     GeneratedDocument,
     RequiredDocumentInput
 )
@@ -46,13 +46,13 @@ class DocumentGenerationService:
     
     async def generate_documents(
         self, 
-        request: GenerateDocumentsRequest
+        request: GenerateDocumentsRequestLegacy
     ) -> List[GeneratedDocument]:
         """
         Generate content for required documents using Gemini AI.
         
         Args:
-            request: The generation request with context
+            request: The generation request with context (legacy format with all data)
             
         Returns:
             List of generated documents with AI-generated content
@@ -269,17 +269,21 @@ WICHTIG: Das improvements-Array MUSS für JEDES Dokument GENAU 3 Einträge haben
         context = f"Stiftung: {foundation_name}\n"
         
         if foundation_details:
-            if "purpose" in foundation_details:
+            if "purpose" in foundation_details and foundation_details["purpose"]:
                 context += f"Förderzweck: {foundation_details['purpose']}\n"
-            if "foerderhoehe" in foundation_details:
+            if "foerderhoehe" in foundation_details and foundation_details["foerderhoehe"]:
                 foerderhoehe = foundation_details["foerderhoehe"]
-                context += f"Förderhöhe: {foerderhoehe.get('min_amount', 0):,.0f}€ - {foerderhoehe.get('max_amount', 0):,.0f}€\n"
-            if "gemeinnuetzige_zwecke" in foundation_details:
+                min_amount = foerderhoehe.get('min_amount') or 0
+                max_amount = foerderhoehe.get('max_amount') or 0
+                if min_amount or max_amount:
+                    context += f"Förderhöhe: {min_amount:,.0f}€ - {max_amount:,.0f}€\n"
+            if "gemeinnuetzige_zwecke" in foundation_details and foundation_details["gemeinnuetzige_zwecke"]:
                 zwecke = ", ".join(foundation_details["gemeinnuetzige_zwecke"])
                 context += f"Gemeinnützige Zwecke: {zwecke}\n"
-            if "foerderbereich" in foundation_details:
+            if "foerderbereich" in foundation_details and foundation_details["foerderbereich"]:
                 scope = foundation_details["foerderbereich"].get("scope", "")
-                context += f"Förderbereich: {scope}\n"
+                if scope:
+                    context += f"Förderbereich: {scope}\n"
         
         return context
     
@@ -325,8 +329,8 @@ WICHTIG: Das improvements-Array MUSS für JEDES Dokument GENAU 3 Einträge haben
                 
                 return DocumentsListOutput(**data)
             
-            # If no JSON found, try direct parsing
-            return self.parser.parse(cleaned_content)
+            # If no JSON found, raise an error
+            raise ValueError("No valid JSON found in response")
             
         except json.JSONDecodeError as e:
             print(f"JSON decode error: {e}")
@@ -342,7 +346,8 @@ WICHTIG: Das improvements-Array MUSS für JEDES Dokument GENAU 3 Einträge haben
             return DocumentsListOutput(documents=[
                 DocumentOutput(
                     document="error",
-                    text=f"Fehler beim JSON-Parsing: {str(e)}\n\nBitte kontaktieren Sie den Support."
+                    text=f"Fehler beim JSON-Parsing: {str(e)}\n\nBitte kontaktieren Sie den Support.",
+                    improvements=["Bitte kontaktieren Sie den Support für weitere Hilfe."]
                 )
             ])
         except Exception as e:
@@ -353,7 +358,8 @@ WICHTIG: Das improvements-Array MUSS für JEDES Dokument GENAU 3 Einträge haben
             return DocumentsListOutput(documents=[
                 DocumentOutput(
                     document="error",
-                    text=f"Fehler beim Parsen der Antwort: {str(e)}\n\nBitte kontaktieren Sie den Support."
+                    text=f"Fehler beim Parsen der Antwort: {str(e)}\n\nBitte kontaktieren Sie den Support.",
+                    improvements=["Bitte kontaktieren Sie den Support für weitere Hilfe."]
                 )
             ])
     
@@ -429,7 +435,7 @@ WICHTIG: Das improvements-Array MUSS für JEDES Dokument GENAU 3 Einträge haben
         self,
         document_text: str,
         document_type: str,
-        existing_improvements: List[str] = None
+        existing_improvements: List[str] | None = None
     ) -> List[str]:
         """
         Generate new improvement suggestions for an existing document.

@@ -8,13 +8,14 @@ export const useChat = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [chatMode, setChatMode] = useState<ChatMode>("initial");
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const { 
+  const {
     sessionId,
-    chatMessages: sessionMessages, 
-    foundationResults, 
-    setChatMessages, 
+    chatMessages: sessionMessages,
+    foundationResults,
+    setChatMessages,
     setProjectQuery,
-    ensureSession 
+    ensureSession,
+    saveSession
   } = useSession();
   const [hasRestoredSession, setHasRestoredSession] = useState(false);
 
@@ -26,7 +27,7 @@ export const useChat = () => {
         messages: sessionMessages.length,
         foundationResults: foundationResults.length
       });
-      
+
       // Restore existing session
       const restoredMessages: Message[] = sessionMessages.map((msg, idx) => ({
         role: msg.role as "user" | "assistant",
@@ -35,9 +36,9 @@ export const useChat = () => {
         id: `msg-restored-${idx}`,
         isNew: false
       }));
-      
+
       setMessages(restoredMessages);
-      
+
       // Determine chat mode based on session state
       if (foundationResults.length > 0) {
         console.log("✅ Restoring to FINISHED mode with results");
@@ -50,7 +51,7 @@ export const useChat = () => {
           setChatMode("refining");
         }
       }
-      
+
       setHasRestoredSession(true);
       console.log("✅ Session UI restored:", restoredMessages.length, "messages");
     }
@@ -66,7 +67,7 @@ export const useChat = () => {
       // Check if these are newly added messages (not restored ones)
       const hasNewMessages = messages.some(msg => msg.isNew);
       const shouldSave = !hasRestoredSession || hasNewMessages;
-      
+
       if (shouldSave) {
         const sessionMsgs = messages.map(msg => ({
           role: msg.role,
@@ -75,7 +76,7 @@ export const useChat = () => {
         }));
         console.log("💾 Saving", sessionMsgs.length, "messages to session context");
         setChatMessages(sessionMsgs);
-        
+
         // Save first user message as project query
         const firstUserMessage = messages.find(m => m.role === "user");
         if (firstUserMessage) {
@@ -96,8 +97,8 @@ export const useChat = () => {
       console.log("📤 Sending message with session:", currentSessionId);
 
       // Add user message to UI
-      const userMessage: Message = { 
-        role: "user", 
+      const userMessage: Message = {
+        role: "user",
         content: content.trim(),
         timestamp: new Date(),
         id: `msg-${Date.now()}-user`,
@@ -123,6 +124,9 @@ export const useChat = () => {
       if (response.code === "refine") {
         setChatMode("refining");
       } else if (response.code === "finish") {
+        // Save session immediately to ensure backend has latest state before results view loads
+        await saveSession();
+
         // Start transition sequence for results
         setIsTransitioning(true);
         setTimeout(() => {

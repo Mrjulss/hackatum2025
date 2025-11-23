@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { DocumentWorkspace } from "./components/DocumentWorkspace";
 import { SubmissionModal } from "./components/SubmissionModal";
 import { SuccessModal } from "./components/SuccessModal";
@@ -20,8 +20,8 @@ export default function ApplicationPage() {
   const params = useParams();
   const router = useRouter();
   const foundationId = params.foundationId as string;
-  const { sessionId, setCurrentFoundationId, chatMessages, projectQuery, applicationDocuments, loadSession, clearSession } = useSession();
-  
+  const { sessionId, setCurrentFoundationId, chatMessages, projectQuery, applicationDocuments, foundationResults, loadSession, clearSession, isInitialized } = useSession();
+
   const [foundation, setFoundation] = useState<Foundation | null>(null);
   const [requiredDocuments, setRequiredDocuments] = useState<RequiredDocument[]>([]);
   const [documentDrafts, setDocumentDrafts] = useState<DocumentDraft[]>([]);
@@ -33,8 +33,22 @@ export default function ApplicationPage() {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const initializedFoundationRef = useRef<string | null>(null);
 
   useEffect(() => {
+    // Wait for session to be initialized
+    if (!isInitialized) {
+      return;
+    }
+
+    // Prevent duplicate calls by checking if we've already initialized this foundation
+    if (initializedFoundationRef.current === foundationId) {
+      return;
+    }
+
+    // Mark as initialized immediately to prevent race conditions
+    initializedFoundationRef.current = foundationId;
+
     const fetchFoundationAndGenerateDrafts = async () => {
       // Need a session to fetch foundation scores
       if (!sessionId) {
@@ -44,109 +58,100 @@ export default function ApplicationPage() {
       }
 
       try {
-        // Fetch foundation details
-        const response = await getFoundationScores(sessionId, 5);
-        if (response && response.success && response.foundations) {
-          const found = response.foundations.find((f: any) => f.id === foundationId);
-          if (found) {
-            const mappedFoundation: Foundation = {
-              id: found.id,
-              name: found.name,
-              logo: found.logo,
-              purpose: found.purpose,
-              description: found.description,
-              fundingAmount: found.funding_amount,
-              matches: found.matches,
-              matchScore: found.match_score,
-              longDescription: found.long_description,
-              legalForm: found.legal_form,
-              gemeinnuetzigeZwecke: found.gemeinnuetzige_zwecke,
-              antragsprozess: found.antragsprozess,
-              foerderbereich: found.foerderbereich,
-              foerderhoehe: found.foerderhoehe,
-              contact: found.contact,
-              pastProjects: found.past_projects,
-              website: found.website,
-            };
-            setFoundation(mappedFoundation);
-            
-            const requiredDocs = found.antragsprozess?.required_documents || [];
-            setRequiredDocuments(requiredDocs);
-            setCurrentFoundationId(foundationId); // Save to session
-            
-            // Check if we have existing documents in the session for this foundation
-            const existingDocs = applicationDocuments[foundationId];
-            
-            if (existingDocs && existingDocs.length > 0) {
-              // Use existing documents from session
-              console.log("📄 Using existing documents from session");
-              setLoading(false);
-              const drafts: DocumentDraft[] = existingDocs.map(doc => ({
-                document_type: doc.document_type,
-                content: doc.content,
+        // Use foundation data from session context (already loaded)
+        console.log("📊 Using foundation data from session context");
+        const found = foundationResults.find((f: any) => f.id === foundationId);
+
+        if (!found) {
+          console.error("❌ Foundation not found in session");
+          router.push("/chat");
+          return;
+        }
+
+        // Foundation found in session - no API call needed!
+        const mappedFoundation: Foundation = {
+          id: found.id,
+          name: found.name,
+          logo: found.logo,
+          purpose: found.purpose,
+          description: found.description,
+          fundingAmount: found.funding_amount,
+          matches: found.matches,
+          matchScore: found.match_score,
+          longDescription: found.long_description,
+          legalForm: found.legal_form,
+          gemeinnuetzigeZwecke: found.gemeinnuetzige_zwecke,
+          antragsprozess: found.antragsprozess,
+          foerderbereich: found.foerderbereich,
+          foerderhoehe: found.foerderhoehe,
+          contact: found.contact,
+          pastProjects: found.past_projects,
+          website: found.website,
+        };
+        setFoundation(mappedFoundation);
+
+        const requiredDocs = found.antragsprozess?.required_documents || [];
+        setRequiredDocuments(requiredDocs);
+        setCurrentFoundationId(foundationId); // Save to session
+
+        // Check if we have existing documents in the session for this foundation
+        const existingDocs = applicationDocuments[foundationId];
+
+        if (existingDocs && existingDocs.length > 0) {
+          // Use existing documents from session
+          console.log("📄 Using existing documents from session");
+          setLoading(false);
+          const drafts: DocumentDraft[] = existingDocs.map(doc => ({
+            document_type: doc.document_type,
+            content: doc.content,
+            improvements: doc.improvements || [],
+          }));
+          setDocumentDrafts(drafts);
+          // initializedFoundationRef.current is already set
+        } else {
+          // Generate document drafts using AI
+          console.log("🤖 Generating new document drafts");
+          setLoading(false);
+          setGeneratingDrafts(true);
+
+          try {
+            // Simplified API call - only need session_id and foundation_id
+            const draftsResponse = await generateDocuments(sessionId, foundationId);
+
+            if (draftsResponse && draftsResponse.success) {
+              // Map generated documents to drafts
+              const drafts: DocumentDraft[] = draftsResponse.documents.map(doc => ({
+                document_type: doc.document,
+                content: doc.text,
                 improvements: doc.improvements || [],
               }));
               setDocumentDrafts(drafts);
+              // initializedFoundationRef.current is already set
             } else {
-              // Generate document drafts using AI
-              console.log("🤖 Generating new document drafts");
-              setLoading(false);
-              setGeneratingDrafts(true);
-              
-              try {
-                const draftsResponse = await generateDocuments({
-                  required_documents: requiredDocs.map((doc: RequiredDocument) => ({
-                    document_type: doc.document_type,
-                    description: doc.description,
-                    required: doc.required,
-                  })),
-                  chat_messages: chatMessages,
-                  project_query: projectQuery || undefined,
-                  foundation_name: found.name,
-                  foundation_details: {
-                    purpose: found.purpose,
-                    gemeinnuetzige_zwecke: found.gemeinnuetzige_zwecke,
-                    foerderhoehe: found.foerderhoehe,
-                    foerderbereich: found.foerderbereich,
-                  },
-                });
-                
-                if (draftsResponse && draftsResponse.success) {
-                  // Map generated documents to drafts
-                  const drafts: DocumentDraft[] = draftsResponse.documents.map(doc => ({
-                    document_type: doc.document,
-                    content: doc.text,
-                    improvements: doc.improvements || [],
-                  }));
-                  setDocumentDrafts(drafts);
-                } else {
-                  console.error("Failed to generate document drafts");
-                  // Initialize with empty drafts
-                  setDocumentDrafts(
-                    requiredDocs.map((doc: RequiredDocument) => ({
-                      document_type: doc.document_type,
-                      content: "",
-                      improvements: [],
-                    }))
-                  );
-                }
-              } catch (error) {
-                console.error("Error generating document drafts:", error);
-                // Initialize with empty drafts on error
-                setDocumentDrafts(
-                  requiredDocs.map((doc: RequiredDocument) => ({
-                    document_type: doc.document_type,
-                    content: "",
-                    improvements: [],
-                  }))
-                );
-              } finally {
-                setGeneratingDrafts(false);
-              }
+              console.error("Failed to generate document drafts");
+              // Initialize with empty drafts
+              setDocumentDrafts(
+                requiredDocs.map((doc: RequiredDocument) => ({
+                  document_type: doc.document_type,
+                  content: "",
+                  improvements: [],
+                }))
+              );
+              // initializedFoundationRef.current is already set
             }
-          } else {
-            console.error("Foundation not found");
-            router.push("/chat");
+          } catch (error) {
+            console.error("Error generating document drafts:", error);
+            // Initialize with empty drafts on error
+            setDocumentDrafts(
+              requiredDocs.map((doc: RequiredDocument) => ({
+                document_type: doc.document_type,
+                content: "",
+                improvements: [],
+              }))
+            );
+            // initializedFoundationRef.current is already set
+          } finally {
+            setGeneratingDrafts(false);
           }
         }
       } catch (error) {
@@ -156,7 +161,8 @@ export default function ApplicationPage() {
     };
 
     fetchFoundationAndGenerateDrafts();
-  }, [sessionId, foundationId, router, chatMessages, projectQuery, applicationDocuments, setCurrentFoundationId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, foundationId, isInitialized]);
 
   const handleBack = () => {
     router.back();
@@ -202,7 +208,7 @@ export default function ApplicationPage() {
   const handleSubmit = () => {
     // Close submission modal
     setIsSubmissionModalOpen(false);
-    
+
     // Show success modal
     setIsSuccessModalOpen(true);
   };
@@ -210,7 +216,7 @@ export default function ApplicationPage() {
   const handleSuccessModalClose = () => {
     // Close success modal
     setIsSuccessModalOpen(false);
-    
+
     // Clear session and navigate to new chat
     clearSession();
     router.push("/chat");
@@ -231,7 +237,7 @@ export default function ApplicationPage() {
             {loading ? "Bereite deinen Antrag vor" : "Erstelle Dokumententwürfe"}
           </h2>
           <p className="text-gray-600">
-            {loading 
+            {loading
               ? "Lade Stiftungsinformationen und Dokumentanforderungen"
               : "KI generiert professionelle Entwürfe basierend auf deinem Projekt"
             }
@@ -294,7 +300,7 @@ export default function ApplicationPage() {
 
         {/* Action Buttons - Bottom Right */}
         <div className="absolute bottom-8 right-8 flex items-center gap-3 z-10">
-          <button 
+          <button
             onClick={handleSaveDraft}
             disabled={isSaving}
             className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all font-medium shadow-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
@@ -311,7 +317,7 @@ export default function ApplicationPage() {
               "Entwurf speichern"
             )}
           </button>
-          <button 
+          <button
             onClick={() => setIsSubmissionModalOpen(true)}
             className="px-6 py-2 bg-gradient-to-r from-[#1b98d5] to-[#0065bd] text-white rounded-lg hover:shadow-xl transition-all font-medium shadow-lg cursor-pointer"
           >

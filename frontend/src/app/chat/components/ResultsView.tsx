@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getFoundationScores } from "../services/api";
 import { ErrorState } from "./ErrorState";
 import { FoundationsLoader } from "./FoundationsLoader";
@@ -30,9 +30,15 @@ export function ResultsView() {
   const [foundations, setFoundations] = useState<Foundation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { sessionId, foundationResults: sessionResults, setFoundationResults } = useSession();
+  const { sessionId, foundationResults: sessionResults, setFoundationResults, isInitialized } = useSession();
+  const hasFetchedRef = useRef(false);
 
   useEffect(() => {
+    // Wait for session initialization
+    if (!isInitialized) {
+      return;
+    }
+
     // Check if we have session data first
     if (sessionResults && sessionResults.length > 0) {
       console.log("✅ Restoring foundations from session:", sessionResults.length);
@@ -61,6 +67,12 @@ export function ResultsView() {
       setIsLoading(false);
       return;
     }
+
+    // Prevent duplicate fetches
+    if (hasFetchedRef.current) {
+      return;
+    }
+    hasFetchedRef.current = true;
 
     // Fetch real data from backend if no session data
     const fetchFoundations = async () => {
@@ -113,7 +125,7 @@ export function ResultsView() {
     };
 
     fetchFoundations();
-  }, [sessionId, sessionResults, setFoundationResults]);
+  }, [sessionId, sessionResults, setFoundationResults, isInitialized]);
 
   const handleToggleExpand = (id: string) => {
     setExpandedId(expandedId === id ? null : id);

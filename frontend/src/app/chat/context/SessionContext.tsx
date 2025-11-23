@@ -29,6 +29,7 @@ type SessionContextType = {
   loadSession: (sessionId: string, shouldNavigate?: boolean) => Promise<void>;
   clearSession: () => void;
   ensureSession: () => Promise<string>; // New: ensure session exists before chat
+  isInitialized: boolean; // New: tracks if session has been initialized from storage
 };
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -53,6 +54,7 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
   const [projectQuery, setProjectQuery] = useState<string | null>(null);
   const [currentFoundationId, setCurrentFoundationId] = useState<string | null>(null);
   const [applicationDocuments, setApplicationDocuments] = useState<Record<string, ApplicationDocument[]>>({});
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // Check if session has application documents
   const hasApplicationDocuments = (data: SessionResponse['data']): boolean => {
@@ -161,7 +163,11 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
     if (storedSessionId) {
       console.log("🔄 Loading session from localStorage:", storedSessionId);
       // Pass shouldNavigate=true to automatically navigate to application page if it has documents
-      loadSession(storedSessionId, true);
+      loadSession(storedSessionId, true).finally(() => {
+        setIsInitialized(true);
+      });
+    } else {
+      setIsInitialized(true);
     }
   }, [loadSession]);
 
@@ -235,6 +241,7 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
         loadSession,
         clearSession,
         ensureSession,
+        isInitialized,
       }}
     >
       {children}

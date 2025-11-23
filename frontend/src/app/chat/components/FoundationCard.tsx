@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { FoundationCardExpanded } from "./FoundationCardExpanded";
+import { useSession } from "../context/SessionContext";
 
 export type MatchItem = {
   text: string;
@@ -114,11 +115,14 @@ export const FoundationCard = ({
   onToggleExpand: () => void;
 }) => {
   const router = useRouter();
+  const { saveSession } = useSession();
   const fits = foundation.matches.filter((m) => m.type === "fit");
   const mismatches = foundation.matches.filter((m) => m.type === "mismatch");
   const questions = foundation.matches.filter((m) => m.type === "question");
 
-  const handleStartApplication = () => {
+  const handleStartApplication = async () => {
+    // Save session immediately before navigating to ensure backend has latest data
+    await saveSession();
     router.push(`/application/${foundation.id}`);
   };
 

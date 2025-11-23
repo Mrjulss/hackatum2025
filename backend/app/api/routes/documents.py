@@ -2,32 +2,42 @@
 Document generation API endpoints.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.models.document_generation import (
     GenerateDocumentsRequest,
     GenerateDocumentsResponse,
     ProofreadDocumentRequest,
-    ProofreadDocumentResponse
+    ProofreadDocumentResponse,
+    RequiredDocumentInput,
+    ChatMessageInput
 )
 from app.services.document_generation_service import DocumentGenerationService
+from app.services.session_service import SessionService
+from app.core.database import get_database
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 router = APIRouter()
 
 
+def get_session_service(db: AsyncIOMotorDatabase = Depends(get_database)) -> SessionService:
+    """Dependency to get session service."""
+    return SessionService(db)
+
+
 @router.post("/generate", response_model=GenerateDocumentsResponse)
-async def generate_documents(request: GenerateDocumentsRequest):
+async def generate_documents(
+    request: GenerateDocumentsRequest,
+    session_service: SessionService = Depends(get_session_service)
+):
     """
     Generate content for required application documents.
     
-    Takes project context (chat messages, foundation details) and
-    generates appropriate content for each required document.
+    Simplified API - only requires session_id and foundation_id.
+    The backend fetches all necessary data from the session.
     
     Request body:
-    - required_documents: List of documents to generate
-    - chat_messages: Conversation history for context
-    - project_query: User's original project idea
-    - foundation_name: Name of the foundation
-    - foundation_details: Additional foundation information
+    - session_id: The session ID containing chat history and project details
+    - foundation_id: The ID of the foundation to generate documents for
     
     Returns:
     - List of generated documents with content
@@ -35,29 +45,94 @@ async def generate_documents(request: GenerateDocumentsRequest):
     Example:
     ```
     {
-      "required_documents": [
-        {
-          "document_type": "projektbeschreibung",
-          "description": "Detailed project description",
-          "required": true
-        }
-      ],
-      "chat_messages": [...],
-      "project_query": "Build a community garden",
-      "foundation_name": "Green Foundation"
+      "session_id": "123e4567-e89b-12d3-a456-426614174000",
+      "foundation_id": "foundation_abc123"
     }
     ```
     """
     try:
-        service = DocumentGenerationService()
-        generated_docs = await service.generate_documents(request)
+        # Fetch session data
+        session_data = await session_service.get_session(request.session_id)
+        if not session_data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Session {request.session_id} not found"
+            )
+        
+        # Find the foundation in the session's foundation_results
+        foundation = None
+        for f in session_data.foundation_results:
+            if f.get("id") == request.foundation_id:
+                foundation = f
+                break
+        
+        if not foundation:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Foundation {request.foundation_id} not found in session results"
+            )
+        
+        # Extract required documents from foundation
+        antragsprozess = foundation.get("antragsprozess", {})
+        required_docs = antragsprozess.get("required_documents", [])
+        
+        if not required_docs:
+            raise HTTPException(
+                status_code=400,
+                detail="No required documents found for this foundation"
+            )
+        
+        # Convert to RequiredDocumentInput format
+        required_documents = [
+            RequiredDocumentInput(
+                document_type=doc.get("document_type", ""),
+                description=doc.get("description", ""),
+                required=doc.get("required", True)
+            )
+            for doc in required_docs
+        ]
+        
+        # Convert chat messages to the format expected by the service
+        chat_messages = [
+            ChatMessageInput(
+                role=msg.role,
+                content=msg.content
+            )
+            for msg in session_data.chat_messages
+        ]
+        
+        # Build foundation details
+        foundation_details = {
+            "purpose": foundation.get("purpose"),
+            "gemeinnuetzige_zwecke": foundation.get("gemeinnuetzige_zwecke"),
+            "foerderhoehe": foundation.get("foerderhoehe"),
+            "foerderbereich": foundation.get("foerderbereich"),
+        }
+        
+        # Create the internal request for the service
+        from app.models.document_generation import GenerateDocumentsRequestLegacy
+        internal_request = GenerateDocumentsRequestLegacy(
+            required_documents=required_documents,
+            chat_messages=chat_messages,
+            project_query=session_data.project_query,
+            foundation_name=foundation.get("name"),
+            foundation_details=foundation_details
+        )
+        
+        # Generate documents
+        doc_service = DocumentGenerationService()
+        generated_docs = await doc_service.generate_documents(internal_request)
         
         return GenerateDocumentsResponse(
             success=True,
             documents=generated_docs,
             message=f"Successfully generated {len(generated_docs)} document(s)"
         )
+    except HTTPException:
+        raise
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate documents: {str(e)}"

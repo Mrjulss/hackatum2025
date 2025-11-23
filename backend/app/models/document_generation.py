@@ -13,7 +13,12 @@ class ChatMessageInput(BaseModel):
     content: str
 
 class GenerateDocumentsRequest(BaseModel):
-    """Request to generate document content."""
+    """Request to generate document content - simplified to only require session and foundation IDs."""
+    session_id: str
+    foundation_id: str
+
+class GenerateDocumentsRequestLegacy(BaseModel):
+    """Legacy request format (deprecated) - for backward compatibility."""
     required_documents: List[RequiredDocumentInput]
     chat_messages: List[ChatMessageInput]
     project_query: Optional[str] = None

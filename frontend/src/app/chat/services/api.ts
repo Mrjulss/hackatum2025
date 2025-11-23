@@ -292,11 +292,8 @@ export type RequiredDocumentInput = {
 };
 
 export type GenerateDocumentsRequest = {
-  required_documents: RequiredDocumentInput[];
-  chat_messages: ChatMessage[];
-  project_query?: string;
-  foundation_name?: string;
-  foundation_details?: any;
+  session_id: string;
+  foundation_id: string;
 };
 
 export type GeneratedDocument = {
@@ -311,9 +308,11 @@ export type GenerateDocumentsResponse = {
   message?: string;
 };
 
-// Generate document content based on context
+// Generate document content based on session and foundation ID
+// The backend fetches all necessary data from the session
 export const generateDocuments = async (
-  request: GenerateDocumentsRequest
+  sessionId: string,
+  foundationId: string
 ): Promise<GenerateDocumentsResponse | null> => {
   try {
     const response = await fetch(`${API_BASE_URL}/api/v1/documents/generate`, {
@@ -321,7 +320,10 @@ export const generateDocuments = async (
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify({
+        session_id: sessionId,
+        foundation_id: foundationId,
+      }),
     });
 
     if (!response.ok) {
