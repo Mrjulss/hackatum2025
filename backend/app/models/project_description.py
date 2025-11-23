@@ -39,3 +39,12 @@ class ProjectDescription(BaseModel):
     charitable_purpose: list[CharitablePurpose] = Field(..., description="Matching Charitable purposes of the project")
 
 
+class ProjectDescriptionWrapper(BaseModel):
+    projectDescription: ProjectDescription | None = Field(
+        default=None,
+        description="Structured project description. Fill this when: (1) you have enough info and want user confirmation (include message too), OR (2) user has confirmed and you're finalizing (message empty)."
+    )
+    message: str = Field(
+        default="",
+        description="Message to the user. Fill this when: (1) gathering more information, OR (2) proposing extraction and asking for confirmation (include projectDescription too). Leave empty only when user confirms final version."
+    )

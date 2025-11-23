@@ -15,8 +15,9 @@ class Settings(BaseSettings):
     MONGODB_URL: str
     MONGODB_DB_NAME: str = "city_hero"
     
-    # Gemini API
-    GEMINI_API_KEY: str
+    # Requesty API
+    REQUESTY_API_KEY: str
+    REQUESTY_BASE_URL: str = "https://router.requesty.ai/v1"
     
     # CORS Origins - comma-separated string
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
