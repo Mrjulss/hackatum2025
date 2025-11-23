@@ -2,11 +2,13 @@
 Document generation service using Gemini AI for creating application documents.
 """
 
-from typing import List
+from typing import List, cast, Any
 import json
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+from langchain.agents import create_agent
+from langchain_core.messages import HumanMessage, BaseMessage
 from pydantic import BaseModel, Field, SecretStr
 
 from app.models.document_generation import (
@@ -33,7 +35,7 @@ class DocumentGenerationService:
     """Service for generating application documents using Gemini AI."""
     
     def __init__(self):
-        """Initialize the Gemini AI model with structured output."""
+        """Initialize the AI model with structured output using agent."""
         if not settings.REQUESTY_API_KEY:
             print("❌ WARNING: REQUESTY_API_KEY is not set!")
         
@@ -41,8 +43,15 @@ class DocumentGenerationService:
             model="anthropic/claude-haiku-4-5",
             api_key=SecretStr(settings.REQUESTY_API_KEY),
             base_url=settings.REQUESTY_BASE_URL,
-        )        
-        self.structured_llm = self.llm.with_structured_output(DocumentsListOutput)
+        )
+        
+        # Create agent with structured output for document generation
+        system_prompt = self._get_system_prompt()
+        self.agent = create_agent(
+            model=self.llm,
+            system_prompt=system_prompt,
+            response_format=DocumentsListOutput,
+        )  # type: ignore
     
     async def generate_documents(
         self, 
@@ -69,25 +78,38 @@ class DocumentGenerationService:
         # Build document requirements
         documents_info = self._build_documents_info(request.required_documents)
         
-        # Create the prompt
-        prompt = self._create_prompt()
-        
-        # Generate documents using modern LangChain structured output
+        # Generate documents using agent with structured output
         try:
-            # Create chain with structured output
             print(f"📝 Generating documents with AI...")
             print(f"Project query: {request.project_query or 'Unbekanntes Projekt'}")
             print(f"Documents to generate: {len(request.required_documents)}")
             
-            # Use structured output to get parsed documents directly
-            chain = prompt | self.structured_llm
-            # Invoke the chain
-            parsed_output: DocumentsListOutput = chain.invoke({
-                "project_query": request.project_query or "Unbekanntes Projekt",
-                "chat_context": chat_context,
-                "foundation_context": foundation_context,
-                "documents_info": documents_info
-            })
+            # Build the human message with all context
+            human_message_content = self._build_human_message(
+                request.project_query or "Unbekanntes Projekt",
+                chat_context,
+                foundation_context,
+                documents_info
+            )
+            
+            # Create message for agent
+            messages: list[BaseMessage] = [
+                HumanMessage(content=human_message_content)
+            ]
+            
+            # Invoke agent
+            response = await self.agent.ainvoke({"messages": cast(Any, messages)})
+            print(f"🔍 DEBUG: Agent response: {response}")
+            
+            # Extract structured response
+            parsed_output = response.get("structured_response")
+            if parsed_output is None:
+                print("ERROR: No structured output from LLM")
+                raise ValueError("No structured output from LLM")
+            
+            if not isinstance(parsed_output, DocumentsListOutput):
+                # If it's a dict, convert it
+                parsed_output = DocumentsListOutput(**parsed_output)
             
             print(f"✅ Successfully generated {len(parsed_output.documents)} documents")
            
@@ -112,10 +134,9 @@ class DocumentGenerationService:
             # Fallback to placeholder if AI fails
             return self._generate_placeholder_documents(request.required_documents)
     
-    def _create_prompt(self) -> ChatPromptTemplate:
-        """Create the prompt template for document generation."""
-        
-        system_message = """Du bist ein erfahrener Experte für Stiftungsanträge in Deutschland. 
+    def _get_system_prompt(self) -> str:
+        """Get the system prompt for document generation."""
+        return """Du bist ein erfahrener Experte für Stiftungsanträge in Deutschland. 
 Deine Aufgabe ist es, professionelle, überzeugende Antragsunterlagen für gemeinnützige Projekte zu erstellen.
 
 WICHTIGE RICHTLINIEN:
@@ -181,8 +202,16 @@ EVALUATION:
 - Evaluationsmethoden
 - Zeitplan für Zwischen- und Abschlussevaluation
 - Bei fehlenden Details: Frage nach Erfolgskriterien und Messmethoden"""
-
-        human_message = """Erstelle professionelle Antragsunterlagen basierend auf folgenden Informationen:
+    
+    def _build_human_message(
+        self,
+        project_query: str,
+        chat_context: str,
+        foundation_context: str,
+        documents_info: str
+    ) -> str:
+        """Build the human message with all context for document generation."""
+        return f"""Erstelle professionelle Antragsunterlagen basierend auf folgenden Informationen:
 
 PROJEKTIDEE:
 {project_query}
@@ -227,27 +256,7 @@ FORMATIERUNG:
 - Text: KEIN Markdown (keine #, **, -, *, |, etc.), Überschriften in GROSSBUCHSTABEN
 - Improvements: PFLICHTFELD - Jeder Eintrag ist ein separater String, IMMER GENAU 3 Einträge
 
-ANTWORTFORMAT - JSON:
-{{
-  "documents": [
-    {{
-      "document": "projektbeschreibung",
-      "text": "VOLLSTÄNDIGER TEXT HIER...",
-      "improvements": [
-        "Verbesserung 1 - konkret und umsetzbar",
-        "Verbesserung 2 - konkret und umsetzbar",
-        "Verbesserung 3 - konkret und umsetzbar"
-      ]
-    }}
-  ]
-}}
-
 WICHTIG: Das improvements-Array MUSS für JEDES Dokument GENAU 3 Einträge haben!"""
-
-        return ChatPromptTemplate.from_messages([
-            ("system", system_message),
-            ("human", human_message)
-        ])
     
     def _build_chat_context(self, messages: List) -> str:
         """Build context from chat messages."""
