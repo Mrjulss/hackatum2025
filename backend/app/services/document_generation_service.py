@@ -6,7 +6,8 @@ from typing import List
 import json
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field, SecretStr
 
 from app.models.document_generation import (
     GenerateDocumentsRequest,
@@ -33,24 +34,14 @@ class DocumentGenerationService:
     
     def __init__(self):
         """Initialize the Gemini AI model with structured output."""
-        if not settings.GEMINI_API_KEY:
-            print("❌ WARNING: GEMINI_API_KEY is not set!")
-        else:
-            print(f"✅ GEMINI_API_KEY is configured (length: {len(settings.GEMINI_API_KEY)})")
+        if not settings.REQUESTY_API_KEY:
+            print("❌ WARNING: REQUESTY_API_KEY is not set!")
         
-        try:
-            self.llm = ChatGoogleGenerativeAI(
-                model="gemini-2.5-flash",
-                google_api_key=settings.GEMINI_API_KEY,
-                temperature=0.7,
-                convert_system_message_to_human=True
-            )
-            print(f"✅ Gemini AI model initialized: gemini-2.5-flash")
-        except Exception as e:
-            print(f"❌ Failed to initialize Gemini AI: {e}")
-            raise
-        
-        # Set up structured output using modern LangChain pattern
+        self.llm = ChatOpenAI(
+            model="anthropic/claude-haiku-4-5",
+            api_key=SecretStr(settings.REQUESTY_API_KEY),
+            base_url=settings.REQUESTY_BASE_URL,
+        )        
         self.structured_llm = self.llm.with_structured_output(DocumentsListOutput)
     
     async def generate_documents(
