@@ -34,8 +34,8 @@ class CharitablePurpose(StrEnum):
 class ProjectDescription(BaseModel):
     """Information needed to register a new user."""
     name: str = Field(..., description="Name of the project, can be left blank if not known yet")
-    description: str = Field(..., description="Description of the project idea")
+    description: str = Field(..., description="Detailed description of the project idea, should contain all relevant details about the project such as (but not limited to): scope, expected outcomes, needed resources and motivation behind the project")
     target_group: str = Field(..., description="Target group of the project")
-    charitable_purpose: CharitablePurpose = Field(..., description="Charitable purpose of the project")
+    charitable_purpose: list[CharitablePurpose] = Field(..., description="Matching Charitable purposes of the project")
 
 
