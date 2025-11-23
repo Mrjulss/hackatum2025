@@ -2,11 +2,13 @@
 Document generation service using Gemini AI for creating application documents.
 """
 
-from typing import List
+from typing import List, cast, Any
 import json
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+from langchain.agents import create_agent
+from langchain_core.messages import HumanMessage, BaseMessage
 from pydantic import BaseModel, Field, SecretStr
 
 from app.models.document_generation import (
@@ -33,7 +35,7 @@ class DocumentGenerationService:
     """Service for generating application documents using Gemini AI."""
     
     def __init__(self):
-        """Initialize the Gemini AI model with structured output."""
+        """Initialize the AI model with structured output using agent."""
         if not settings.REQUESTY_API_KEY:
             print("❌ WARNING: REQUESTY_API_KEY is not set!")
         
@@ -41,8 +43,15 @@ class DocumentGenerationService:
             model="anthropic/claude-haiku-4-5",
             api_key=SecretStr(settings.REQUESTY_API_KEY),
             base_url=settings.REQUESTY_BASE_URL,
-        )        
-        self.structured_llm = self.llm.with_structured_output(DocumentsListOutput)
+        )
+        
+        # Create agent with structured output for document generation
+        system_prompt = self._get_system_prompt()
+        self.agent = create_agent(
+            model=self.llm,
+            system_prompt=system_prompt,
+            response_format=DocumentsListOutput,
+        )  # type: ignore
     
     async def generate_documents(
         self, 
@@ -69,95 +78,37 @@ class DocumentGenerationService:
         # Build document requirements
         documents_info = self._build_documents_info(request.required_documents)
         
-        # Create the prompt
-        prompt = self._create_prompt()
-        
-        # Generate documents using modern LangChain structured output
+        # Generate documents using agent with structured output
         try:
-            # Prepare prompt variables
-            project_query_text = request.project_query or "Unbekanntes Projekt"
-            prompt_variables = {
-                "project_query": project_query_text,
-                "chat_context": chat_context,
-                "foundation_context": foundation_context,
-                "documents_info": documents_info
-            }
-            
-            # Format the full prompt for logging
-            system_message = """Du erstellst professionelle Stiftungsanträge auf Deutsch.
-
-FORMAT:
-- PLAIN TEXT (kein Markdown: keine #, **, -, *, |)
-- Überschriften in GROSSBUCHSTABEN
-- Struktur durch Absätze und Zeilenumbrüche
-
-HAUPTTEXT ("text"):
-- Vollständiger, verwendbarer Entwurf
-- KEINE Platzhalter oder [FRAGE: ...]
-- Bei fehlenden Infos: allgemein, aber professionell formulieren
-
-VERBESSERUNGEN ("improvements") - PFLICHT:
-- GENAU 3 konkrete Vorschläge pro Dokument
-- Array darf NIEMALS leer sein
-- Formuliere als klare Handlungsaufforderungen mit Beispielen
-
-DOKUMENTE:
-- PROJEKTBESCHREIBUNG: Titel, Problem, Zielgruppe, SMART-Ziele, Methodik, Wirkung, Nachhaltigkeit
-- BUDGETPLAN: Tabellarisch (Leerzeichen), Gesamtkosten, Eigenanteil, Förderung
-- ZEITPLAN: Phasen mit Monaten, Meilensteine, Evaluation
-- EVALUATION: Messbare Indikatoren, Methoden, Zeitplan"""
-            
-            human_message = f"""Erstelle Antragsunterlagen:
-
-PROJEKT: {project_query_text}
-CHAT: {chat_context}
-STIFTUNG: {foundation_context}
-DOKUMENTE: {documents_info}
-
-Für JEDES Dokument:
-1. "text": Vollständiger Entwurf (KEINE Platzhalter)
-2. "improvements": GENAU 3 konkrete Vorschläge (z.B. "Präzisiere Zielgruppe: Wie viele Personen, welche Altersgruppe?")
-
-JSON-Format:
-{{
-  "documents": [
-    {{
-      "document": "projektbeschreibung",
-      "text": "VOLLSTÄNDIGER TEXT...",
-      "improvements": ["Vorschlag 1", "Vorschlag 2", "Vorschlag 3"]
-    }}
-  ]
-}}"""
-            
-            full_prompt = f"SYSTEM:\n{system_message}\n\nHUMAN:\n{human_message}"
-            total_chars = len(full_prompt)
-            total_tokens_estimate = total_chars // 4  # Rough estimate: ~4 chars per token
-            
-            # Log prompt details
-            print(f"\n{'='*80}")
-            print(f"📝 PROMPT ANALYSIS")
-            print(f"{'='*80}")
-            print(f"System message length: {len(system_message)} chars")
-            print(f"Human message length: {len(human_message)} chars")
-            print(f"Total prompt length: {total_chars} chars (~{total_tokens_estimate} tokens estimated)")
-            print(f"\nProject query length: {len(project_query_text)} chars")
-            print(f"Chat context length: {len(chat_context)} chars")
-            print(f"Foundation context length: {len(foundation_context)} chars")
-            print(f"Documents info length: {len(documents_info)} chars")
-            print(f"\n{'='*80}")
-            print(f"FULL PROMPT:")
-            print(f"{'='*80}")
-            print(full_prompt)
-            print(f"{'='*80}\n")
-            
-            # Create chain with structured output
             print(f"📝 Generating documents with AI...")
             print(f"Documents to generate: {len(request.required_documents)}")
             
-            # Use structured output to get parsed documents directly
-            chain = prompt | self.structured_llm
-            # Invoke the chain
-            parsed_output: DocumentsListOutput = chain.invoke(prompt_variables)
+            # Build the human message with all context
+            human_message_content = self._build_human_message(
+                request.project_query or "Unbekanntes Projekt",
+                chat_context,
+                foundation_context,
+                documents_info
+            )
+            
+            # Create message for agent
+            messages: list[BaseMessage] = [
+                HumanMessage(content=human_message_content)
+            ]
+            
+            # Invoke agent
+            response = await self.agent.ainvoke({"messages": cast(Any, messages)})
+            print(f"🔍 DEBUG: Agent response: {response}")
+            
+            # Extract structured response
+            parsed_output = response.get("structured_response")
+            if parsed_output is None:
+                print("ERROR: No structured output from LLM")
+                raise ValueError("No structured output from LLM")
+            
+            if not isinstance(parsed_output, DocumentsListOutput):
+                # If it's a dict, convert it
+                parsed_output = DocumentsListOutput(**parsed_output)
             
             print(f"✅ Successfully generated {len(parsed_output.documents)} documents")
            
@@ -182,10 +133,44 @@ JSON-Format:
             # Fallback to placeholder if AI fails
             return self._generate_placeholder_documents(request.required_documents)
     
-    def _create_prompt(self) -> ChatPromptTemplate:
-        """Create the prompt template for document generation."""
-        
-        system_message = """Du erstellst professionelle Stiftungsanträge auf Deutsch.
+    def _get_system_prompt(self) -> str:
+        """Get the system prompt for document generation."""
+        return """Du bist ein erfahrener Experte für Stiftungsanträge in Deutschland. 
+Deine Aufgabe ist es, professionelle, überzeugende Antragsunterlagen für gemeinnützige Projekte zu erstellen.
+
+WICHTIGE RICHTLINIEN:
+1. Schreibe auf Deutsch in professionellem, aber zugänglichem Stil
+2. Verwende konkrete, messbare Ziele und klare Beschreibungen
+3. Passe den Inhalt an die spezifische Stiftung und ihre Förderschwerpunkte an
+4. Nutze die Informationen aus dem Chat-Verlauf, um das Projekt zu verstehen
+5. Schreibe in PLAIN TEXT ohne Markdown-Formatierung (keine #, **, -, *, |, etc.)
+6. Strukturiere durch Absätze, Zeilenumbrüche und klare Überschriften in GROSSBUCHSTABEN
+7. Sei konkret und vermeide leere Phrasen
+8. Zeige die gesellschaftliche Wirkung und Nachhaltigkeit des Projekts auf
+
+**WICHTIG - UMGANG MIT FEHLENDEN INFORMATIONEN:**
+- Der HAUPTTEXT ("text") muss IMMER ein vollständiger, verwendbarer Entwurf sein
+- KEINE Platzhalter, KEINE [FRAGE: ...] im Haupttext
+- Schreibe sinnvolle, plausible Inhalte basierend auf dem verfügbaren Kontext
+- Bei fehlenden Details: Formuliere allgemein, aber professionell
+
+**VERBESSERUNGSVORSCHLÄGE ("improvements") - PFLICHTFELD:**
+- DU MUSST für JEDES Dokument GENAU 3 konkrete Verbesserungsvorschläge erstellen
+- Das improvements-Array darf NIEMALS leer sein
+- Wähle die 3 wichtigsten Verbesserungen aus
+- Jeder Vorschlag muss dem Nutzer helfen, den Entwurf zu präzisieren
+- Formuliere als klare, spezifische Handlungsaufforderungen
+- Gib konkrete Beispiele oder Orientierungshilfen
+
+BEISPIELE für gute Verbesserungsvorschläge:
+- "Präzisiere die Zielgruppe: Welche spezifische Altersgruppe soll erreicht werden? (z.B. Kinder 6-12 Jahre, Jugendliche 13-18)"
+- "Ergänze konkrete Erfolgsindikatoren: Wie viele Teilnehmer:innen sollen erreicht werden? Welche messbaren Veränderungen werden angestrebt?"
+- "Detailliere die Personalkosten: Welche Qualifikationen bringen die Projektmitarbeiter:innen mit? Wie hoch ist der Stundensatz?"
+- "Füge Informationen zur Zielgruppe hinzu: Wie viele Personen werden konkret erreicht? Welche Merkmale hat die Zielgruppe?"
+- "Ergänze messbare Projektergebnisse: Was sind die konkreten Outputs? Wie wird der Erfolg gemessen?"
+- "Spezifiziere den Zeitplan: Welche Meilensteine gibt es? Wann finden welche Aktivitäten statt?"
+
+DOKUMENT-TYPEN UND IHRE ANFORDERUNGEN:
 
 FORMAT:
 - PLAIN TEXT (kein Markdown: keine #, **, -, *, |)
@@ -202,13 +187,21 @@ VERBESSERUNGEN ("improvements") - PFLICHT:
 - Array darf NIEMALS leer sein
 - Formuliere als klare Handlungsaufforderungen mit Beispielen
 
-DOKUMENTE:
-- PROJEKTBESCHREIBUNG: Titel, Problem, Zielgruppe, SMART-Ziele, Methodik, Wirkung, Nachhaltigkeit
-- BUDGETPLAN: Tabellarisch (Leerzeichen), Gesamtkosten, Eigenanteil, Förderung
-- ZEITPLAN: Phasen mit Monaten, Meilensteine, Evaluation
-- EVALUATION: Messbare Indikatoren, Methoden, Zeitplan"""
-
-        human_message = """Erstelle Antragsunterlagen:
+EVALUATION:
+- Messbare quantitative und qualitative Indikatoren
+- Evaluationsmethoden
+- Zeitplan für Zwischen- und Abschlussevaluation
+- Bei fehlenden Details: Frage nach Erfolgskriterien und Messmethoden"""
+    
+    def _build_human_message(
+        self,
+        project_query: str,
+        chat_context: str,
+        foundation_context: str,
+        documents_info: str
+    ) -> str:
+        """Build the human message with all context for document generation."""
+        return f"""Erstelle professionelle Antragsunterlagen basierend auf folgenden Informationen:
 
 PROJEKT: {project_query}
 CHAT: {chat_context}
@@ -219,21 +212,44 @@ Für JEDES Dokument:
 1. "text": Vollständiger Entwurf (KEINE Platzhalter)
 2. "improvements": GENAU 3 konkrete Vorschläge (z.B. "Präzisiere Zielgruppe: Wie viele Personen, welche Altersgruppe?")
 
-JSON-Format:
-{{
-  "documents": [
-    {{
-      "document": "projektbeschreibung",
-      "text": "VOLLSTÄNDIGER TEXT...",
-      "improvements": ["Vorschlag 1", "Vorschlag 2", "Vorschlag 3"]
-    }}
-  ]
-}}"""
+STIFTUNGSINFORMATIONEN:
+{foundation_context}
 
-        return ChatPromptTemplate.from_messages([
-            ("system", system_message),
-            ("human", human_message)
-        ])
+BENÖTIGTE DOKUMENTE:
+{documents_info}
+
+AUFGABE:
+Erstelle für JEDES angeforderte Dokument:
+1. "text": Einen vollständigen, professionellen Entwurf OHNE Platzhalter oder Fragen
+2. "improvements": PFLICHTFELD - GENAU 3 konkrete Verbesserungsvorschläge
+
+WICHTIG - Haupttext ("text"):
+- Muss KOMPLETT und VERWENDBAR sein
+- KEINE [FRAGE: ...] oder Platzhalter im Text
+- Schreibe plausible Inhalte basierend auf verfügbaren Informationen
+- Bei Unsicherheit: Formuliere allgemein, aber professionell
+
+KRITISCH - Verbesserungen ("improvements") - PFLICHTFELD:
+- MUSS GENAU 3 konkrete Vorschläge enthalten
+- Das Array darf NIEMALS leer sein
+- Wähle die 3 wichtigsten Verbesserungen für dieses spezifische Dokument
+- Jeder Vorschlag muss spezifisch und umsetzbar sein
+- Formuliere als klare, direkte Fragen oder Handlungsaufforderungen
+- Gib konkrete Beispiele, wo es hilfreich ist
+
+Beispiele für gute Verbesserungsvorschläge:
+- "Präzisiere die Zielgruppe mit konkreten Zahlen: Wie viele Personen sollen erreicht werden? Welche Altersgruppe?"
+- "Ergänze messbare Projektziele: Welche konkreten Ergebnisse sollen bis wann erreicht werden?"
+- "Detailliere die Kostenplanung: Welche Personalkosten fallen an? (Stundensatz, Anzahl Stunden)"
+- "Spezifiziere den Zeitplan: Wann soll das Projekt starten? Wie lange ist die Laufzeit?"
+- "Füge Informationen zur Nachhaltigkeit hinzu: Wie wird das Projekt nach Förderungsende weitergeführt?"
+- "Konkretisiere die Evaluationsmethoden: Welche spezifischen Indikatoren werden gemessen?"
+
+FORMATIERUNG:
+- Text: KEIN Markdown (keine #, **, -, *, |, etc.), Überschriften in GROSSBUCHSTABEN
+- Improvements: PFLICHTFELD - Jeder Eintrag ist ein separater String, IMMER GENAU 3 Einträge
+
+WICHTIG: Das improvements-Array MUSS für JEDES Dokument GENAU 3 Einträge haben!"""
     
     def _build_chat_context(self, messages: List) -> str:
         """Build context from chat messages - limited to reduce token usage."""
